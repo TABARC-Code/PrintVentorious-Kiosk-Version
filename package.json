@@ -1,0 +1,22 @@
+{
+  "name": "printventorious-kiosk-version",
+  "version": "0.1.0",
+  "description": "A simple customer quote page for a 3D print farm: pick an item, get a price, leave an email address. Built to sit alongside PrintVentorious.",
+  "main": "src/kiosk-core.js",
+  "scripts": {
+    "start": "node server.js",
+    "inbox": "node scripts/inbox.js",
+    "test": "node scripts/run-tests.js",
+    "test:browser": "node tests/kiosk.smoke.cjs"
+  },
+  "author": "TABARC-Code",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.58.0"
+  }
+}

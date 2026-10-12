@@ -1,0 +1,319 @@
+diff --git a/Dockerfile b/Dockerfile
+index f3dd79d..3b289dd 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -103,7 +103,7 @@ RUN rm -rf node_modules/better-sqlite3/build || true && \
+ 
+ # Copy application files
+ COPY main.js db-repair.js bundle-keys.js zip-extract.js preload.js input-dialog-preload.js input-dialog.html renderer.js notes-markdown.js dedup-preferred.js organize-library.js organize-library-ui.js organize-library.css index.html styles.css theme.css notes-markdown.css preview-wall.css thumbnail-progress.css thumbnail-progress.js ./
+-COPY printer-manager.js printer-discovery.js slicer-detect.js printer-management.js printer-management.css ui-polish.js ui-prefs-lib.js ui-prefs-boot.js ui-prefs.js ui-prefs.css ui-prefs-scale.css ui-prefs-hc.css farm-cost-lib.js farm-cost.js farm-cost.css parts-stock.js parts-stock.css ./
++COPY printer-manager.js printer-discovery.js slicer-detect.js printer-management.js printer-management.css ui-polish.js kiosk-core.js kiosk-admin.js kiosk-admin.css kiosk-client.js kiosk.css kiosk.html ui-prefs-lib.js ui-prefs-boot.js ui-prefs.js ui-prefs.css ui-prefs-scale.css ui-prefs-hc.css farm-cost-lib.js farm-cost.js farm-cost.css parts-stock.js parts-stock.css ./
+ COPY manifest.webmanifest sw.js pwa.js mobile-ui.js mobile-ui.css ./
+ COPY server-bridge.js scan-worker.js scan-skip.js parse-worker.js scheduled-backup.js missing-thumbnails-query.js primary-thumbnails-query.js delete-model-file.js flatten-3mf-stl.js thumbnail-worker.js ./
+ COPY slicer-launch.js slicer-protocol.js library-context.js folder-tags.js stl-sanity.js thumbnail-skip.js ai-rate-limit.js support-logs.js support-webhook.json ./
+@@ -119,7 +119,7 @@ COPY *.png *.jpg *.bmp ./
+ COPY guide/ ./guide/
+ 
+ # Fail the build if required app modules were omitted from COPY above
+-RUN for f in db-repair.js bundle-keys.js zip-extract.js thumbnail-compress.js threemf-mesh-extract.js print-events.js folder-tree-lib.js mcp-server.js server-tls.js server-security.js extension-inbox.js sidebar-layout.js folder-tree.js extract-lys-preview.js extract-f3d-preview.js extract-chitubox-preview.js extract-voxl-preview.js parse-lys-geometry.js step-assembly.js manifest.webmanifest sw.js pwa.js mobile-ui.js mobile-ui.css theme.css notes-markdown.js notes-markdown.css dedup-preferred.js organize-library.js organize-library-ui.js organize-library.css printer-manager.js printer-discovery.js slicer-detect.js printer-management.js printer-management.css ui-polish.js ui-prefs-lib.js ui-prefs-boot.js ui-prefs.js ui-prefs.css ui-prefs-scale.css ui-prefs-hc.css farm-cost-lib.js farm-cost.js farm-cost.css parts-stock.js parts-stock.css scheduled-backup.js missing-thumbnails-query.js primary-thumbnails-query.js delete-model-file.js scan-skip.js slicer-launch.js slicer-protocol.js helper/printventory-helper.js helper/install-bundle.js library-context.js folder-tags.js grid-refresh.js stl-sanity.js thumbnail-skip.js ai-rate-limit.js support-logs.js support-webhook.json input-dialog-preload.js input-dialog.html; do \
++RUN for f in db-repair.js bundle-keys.js zip-extract.js thumbnail-compress.js threemf-mesh-extract.js print-events.js folder-tree-lib.js mcp-server.js server-tls.js server-security.js extension-inbox.js sidebar-layout.js folder-tree.js extract-lys-preview.js extract-f3d-preview.js extract-chitubox-preview.js extract-voxl-preview.js parse-lys-geometry.js step-assembly.js manifest.webmanifest sw.js pwa.js mobile-ui.js mobile-ui.css theme.css notes-markdown.js notes-markdown.css dedup-preferred.js organize-library.js organize-library-ui.js organize-library.css printer-manager.js printer-discovery.js slicer-detect.js printer-management.js printer-management.css ui-polish.js kiosk-core.js kiosk-admin.js kiosk-admin.css kiosk-client.js kiosk.css kiosk.html ui-prefs-lib.js ui-prefs-boot.js ui-prefs.js ui-prefs.css ui-prefs-scale.css ui-prefs-hc.css farm-cost-lib.js farm-cost.js farm-cost.css parts-stock.js parts-stock.css scheduled-backup.js missing-thumbnails-query.js primary-thumbnails-query.js delete-model-file.js scan-skip.js slicer-launch.js slicer-protocol.js helper/printventory-helper.js helper/install-bundle.js library-context.js folder-tags.js grid-refresh.js stl-sanity.js thumbnail-skip.js ai-rate-limit.js support-logs.js support-webhook.json input-dialog-preload.js input-dialog.html; do \
+       test -f "$f" || (echo "Missing required app file: $f" >&2; exit 1); \
+     done
+ 
+diff --git a/index.html b/index.html
+index a3cf09a..19e763e 100644
+--- a/index.html
++++ b/index.html
+@@ -19,6 +19,7 @@
+   <link rel="stylesheet" href="styles.css">
+   <link rel="stylesheet" href="parts-stock.css">
+   <link rel="stylesheet" href="farm-cost.css">
++  <link rel="stylesheet" href="kiosk-admin.css">
+   <link rel="stylesheet" href="printer-management.css">
+   <link rel="stylesheet" href="notes-markdown.css">
+   <link rel="stylesheet" href="preview-wall.css">
+@@ -2766,6 +2767,18 @@ docker run -d --name printventory-server -p 5000:5000 -v printventory-data:/root
+         </form>
+       </dialog>
+ 
++      <dialog id="kiosk-admin-dialog" class="modal" aria-labelledby="kiosk-admin-title">
++        <form method="dialog" onsubmit="return false">
++          <h3 id="kiosk-admin-title">Quote requests</h3>
++          <p class="ka-lead">A simple customer page where people pick an item, get a price and leave their email address. Requests arrive here. The page is off until you turn it on in Settings.</p>
++          <div id="kiosk-admin-body"></div>
++          <div class="ka-footer">
++            <span id="ka-status" role="status" aria-live="polite"></span>
++            <button type="button" id="kiosk-admin-close" class="printer-btn-close">Close</button>
++          </div>
++        </form>
++      </dialog>
++
+       <dialog id="display-prefs-dialog" class="modal" aria-labelledby="display-prefs-title">
+         <form method="dialog" onsubmit="return false">
+           <h3 id="display-prefs-title">Display and accessibility</h3>
+@@ -3025,6 +3038,7 @@ docker run -d --name printventory-server -p 5000:5000 -v printventory-data:/root
+   <script src="ui-prefs.js"></script>
+   <script src="farm-cost-lib.js"></script>
+   <script src="farm-cost.js"></script>
++  <script src="kiosk-admin.js"></script>
+   <script src="print-history.js"></script>
+   <script type="module" src="slicer.js"></script>
+   <script src="guide.js"></script>
+diff --git a/main.js b/main.js
+index ea9b49a..026e7da 100644
+--- a/main.js
++++ b/main.js
+@@ -31,6 +31,7 @@ const { detectInstalledSlicers } = require('./slicer-detect');
+ const { buildSlicerSpawnSpec, launchSlicerProcess, invalidSlicerPathError } = require('./slicer-launch');
+ const { registerHelperBundleRoute } = require('./helper/install-bundle');
+ const serverSecurity = require('./server-security');
++const kioskCore = require('./kiosk-core');
+ const {
+   normalizeExcludeNames,
+   shouldSkipDirectoryName,
+@@ -709,6 +710,15 @@ function startHttpServer(port = 5000, localhostOnly = false, options = {}) {
+   const accessToken = serverSecurity.validateToken(process.env.PRINTVENTORY_ACCESS_TOKEN);
+   const allowedOrigins = serverSecurity.parseList(process.env.PRINTVENTORY_ALLOWED_ORIGINS);
+   expressApp.use(serverSecurity.createOriginPolicy({ allowedOrigins }));
++  // Customer quote page (off until switched on in Quote Requests). Deliberately mounted BEFORE the admin
++  // access guard (customers don't have the token) and BEFORE the 50 MB body parser (it takes 8 KB at most).
++  // It exposes five small endpoints and none of the admin WebSocket. See kiosk-core.js.
++  kioskCore.registerRoutes(expressApp, {
++    getDb: () => db,
++    getSetting: (k) => getSettingValueOr(k, null),
++    appDir: __dirname,
++    onNewRequest: () => { try { mainWindow?.webContents.send('kiosk-requests-changed'); } catch (_) { /* window closing */ } }
++  });
+   expressApp.use(serverSecurity.createAccessGuard(accessToken));
+   expressApp.use(serverSecurity.createStaticBlocker());
+   if (!localhostOnly && !accessToken) {
+@@ -3599,10 +3609,23 @@ function migrateRatingFavoriteColumns() {
+   }
+ }
+ 
++// Quote requests hold customers' email addresses, so they're deleted after the retention period
++// (Quote requests settings; default 180 days). Runs at start-up and every six hours.
++function purgeKioskRequests() {
++  try {
++    const days = kioskCore.loadSettings((k) => getSettingValueOr(k, null)).retentionDays;
++    const removed = kioskCore.purgeOld(db, days);
++    if (removed) console.log(`[Kiosk] Deleted ${removed} quote request(s) older than ${days} days`);
++  } catch (error) { console.error('[Kiosk] Could not purge old quote requests:', error.message); }
++}
++setInterval(purgeKioskRequests, 6 * 60 * 60 * 1000).unref();
++
+ function migratePrintLifecycleColumns() {
+   try {
+     printEvents.migratePrintLifecycle(db);
+     printerManager.ensurePrinterSchema(db);
++    kioskCore.ensureSchema(db);
++    purgeKioskRequests();
+     return true;
+   } catch (error) {
+     console.error('Error migrating print lifecycle columns:', error);
+@@ -4039,6 +4062,10 @@ async function createWindow() {
+           label: 'Farm Cost Calculator',
+           click: () => mainWindow.webContents.send('open-farm-cost')
+         },
++        {
++          label: 'Quote Requests',
++          click: () => mainWindow.webContents.send('open-kiosk-admin')
++        },
+         {
+           label: 'Display and Accessibility',
+           click: () => mainWindow.webContents.send('open-display-prefs')
+@@ -4367,6 +4394,10 @@ function createApplicationMenu() {
+           label: 'Farm Cost Calculator',
+           click: () => mainWindow.webContents.send('open-farm-cost')
+         },
++        {
++          label: 'Quote Requests',
++          click: () => mainWindow.webContents.send('open-kiosk-admin')
++        },
+         {
+           label: 'Display and Accessibility',
+           click: () => mainWindow.webContents.send('open-display-prefs')
+@@ -6647,6 +6678,13 @@ async function getAllPrintersHandler() {
+ }
+ ipcMain.handle('get-all-printers', getAllPrintersHandler);
+ 
++kioskCore.registerAdminIpc(ipcMain, {
++  getDb: () => db,
++  getSetting: (k) => getSettingValueOr(k, null),
++  setSetting: writeSettingValue,
++  status: () => ({ tokenSet: !!process.env.PRINTVENTORY_ACCESS_TOKEN, serverMode: isServerMode })
++});
++
+ async function discoverPrintersHandler(event, range) {
+   try {
+     return await printerDiscovery.discoverPrinters({ range: typeof range === 'string' ? range : '' });
+@@ -13832,6 +13870,10 @@ ipcMain.on('open-display-prefs', (event) => {
+   mainWindow.webContents.send('open-display-prefs');
+ });
+ 
++ipcMain.on('open-kiosk-admin', (event) => {
++  mainWindow.webContents.send('open-kiosk-admin');
++});
++
+ // Whole-window zoom for the desktop app (Display and accessibility > Window size).
+ // Only the steps the dialog offers are accepted; anything else resets to 100%.
+ ipcMain.handle('set-ui-zoom', async (event, percent) => {
+diff --git a/package.json b/package.json
+index 1a762d5..ff480cc 100644
+--- a/package.json
++++ b/package.json
+@@ -177,6 +177,12 @@
+       "parts-stock.js",
+       "parts-stock.css",
+       "ui-polish.js",
++      "kiosk-core.js",
++      "kiosk-admin.js",
++      "kiosk-admin.css",
++      "kiosk-client.js",
++      "kiosk.css",
++      "kiosk.html",
+       "ui-prefs-lib.js",
+       "ui-prefs-boot.js",
+       "ui-prefs.js",
+diff --git a/preload.js b/preload.js
+index a350682..ed9933c 100644
+--- a/preload.js
++++ b/preload.js
+@@ -119,6 +119,20 @@ contextBridge.exposeInMainWorld('electron', {
+   onOpenPrinterManagement: (callback) => ipcRenderer.on('open-printer-management', callback),
+   onOpenFarmCost: (callback) => ipcRenderer.on('open-farm-cost', callback),
+   onOpenDisplayPrefs: (callback) => ipcRenderer.on('open-display-prefs', callback),
++  onOpenKioskAdmin: (callback) => ipcRenderer.on('open-kiosk-admin', callback),
++  onKioskRequestsChanged: (callback) => ipcRenderer.on('kiosk-requests-changed', callback),
++  getKioskSettings: () => ipcRenderer.invoke('kiosk-get-settings'),
++  saveKioskSettings: (patch) => ipcRenderer.invoke('kiosk-save-settings', patch),
++  listKioskItems: () => ipcRenderer.invoke('kiosk-list-items'),
++  searchKioskModels: (q) => ipcRenderer.invoke('kiosk-search-models', q),
++  saveKioskItem: (item) => ipcRenderer.invoke('kiosk-save-item', item),
++  removeKioskItem: (modelId) => ipcRenderer.invoke('kiosk-remove-item', modelId),
++  listKioskRequests: (status) => ipcRenderer.invoke('kiosk-list-requests', status),
++  updateKioskRequest: (id, status) => ipcRenderer.invoke('kiosk-update-request', id, status),
++  deleteKioskRequest: (id) => ipcRenderer.invoke('kiosk-delete-request', id),
++  getKioskRequestCount: () => ipcRenderer.invoke('kiosk-request-count'),
++  previewKioskQuote: (input) => ipcRenderer.invoke('kiosk-preview-quote', input),
++  testKioskWebhook: () => ipcRenderer.invoke('kiosk-test-webhook'),
+   setUiZoom: (percent) => ipcRenderer.invoke('set-ui-zoom', percent),
+   getPrintEvents: (modelId) => ipcRenderer.invoke('get-print-events', modelId),
+   logPrintEvent: (payload) => ipcRenderer.invoke('log-print-event', payload),
+@@ -321,6 +335,8 @@ contextBridge.exposeInMainWorld('electron', {
+       'open-printer-management',
+       'open-farm-cost',
+       'open-display-prefs',
++      'open-kiosk-admin',
++      'kiosk-requests-changed',
+       'open-parts-stock',
+       'open-purge-models',
+       'open-metadata-editor',
+diff --git a/renderer.js b/renderer.js
+index 451ced8..a3fbfab 100644
+--- a/renderer.js
++++ b/renderer.js
+@@ -75,7 +75,7 @@ window._electronRealEventHandlers = {};
+ window._electronPendingEvents = {};
+ const earlyEventChannels = [
+   'open-theme-settings', 'clear-new-flags', 'regenerate-thumbnails', 'generate-missing-thumbnails',
+-  'start-print-roulette', 'open-dedup', 'open-organize-library', 'open-tag-manager', 'open-filament-manager', 'open-printer-management', 'open-farm-cost', 'open-display-prefs', 'open-parts-stock', 'open-stats',
++  'start-print-roulette', 'open-dedup', 'open-organize-library', 'open-tag-manager', 'open-filament-manager', 'open-printer-management', 'open-farm-cost', 'open-display-prefs', 'open-kiosk-admin', 'open-parts-stock', 'open-stats',
+   'open-backup-restore', 'open-ai-config', 'open-file-type-settings', 'open-performance-settings',
+   'open-slicer-settings', 'open-browser-extension-settings', 'open-mcp-server-settings', 'open-https-settings', 'open-purge-models',
+   'open-metadata-editor', 'open-system-report', 'open-manage-thumbnails',
+@@ -7811,6 +7811,13 @@ async function createServerMenuBar() {
+         window.electron.send('open-printer-management');
+       }
+     }},
++    { label: 'Quote Requests', action: () => {
++      if (typeof window.openKioskAdmin === 'function') {
++        window.openKioskAdmin();
++      } else {
++        window.electron.send('open-kiosk-admin');
++      }
++    }},
+     { label: 'Display and Accessibility', action: () => {
+       if (typeof window.openDisplayPrefs === 'function') {
+         window.openDisplayPrefs();
+diff --git a/scripts/create-docker-distribution.js b/scripts/create-docker-distribution.js
+index ee1d56b..7b8c32a 100644
+--- a/scripts/create-docker-distribution.js
++++ b/scripts/create-docker-distribution.js
+@@ -51,6 +51,12 @@ const filesToCopy = [
+   'printer-management.js',
+   'printer-management.css',
+   'ui-polish.js',
++  'kiosk-core.js',
++  'kiosk-admin.js',
++  'kiosk-admin.css',
++  'kiosk-client.js',
++  'kiosk.css',
++  'kiosk.html',
+   'ui-prefs-lib.js',
+   'ui-prefs-boot.js',
+   'ui-prefs.js',
+diff --git a/scripts/gen-ui-prefs-css.js b/scripts/gen-ui-prefs-css.js
+index f500946..f05f2cb 100644
+--- a/scripts/gen-ui-prefs-css.js
++++ b/scripts/gen-ui-prefs-css.js
+@@ -28,7 +28,7 @@ const path = require('path');
+ 
+ const ROOT = path.resolve(__dirname, '..');
+ const INPUTS = [
+-  'theme.css', 'styles.css', 'mobile-ui.css', 'preview-wall.css', 'thumbnail-progress.css',
++  'theme.css', 'styles.css', 'mobile-ui.css', 'preview-wall.css', 'thumbnail-progress.css', 'kiosk-admin.css',
+   'notes-markdown.css', 'organize-library.css', 'printer-management.css', 'parts-stock.css', 'farm-cost.css'
+ ];
+ const SURFACE = [30, 30, 46];            // #1e1e2e, the usual dialog surface
+diff --git a/scripts/zip-macos-build.ps1 b/scripts/zip-macos-build.ps1
+index 70c4c0a..ed082c7 100644
+--- a/scripts/zip-macos-build.ps1
++++ b/scripts/zip-macos-build.ps1
+@@ -44,6 +44,12 @@ $rootFiles = @(
+     "server-tls.js",
+     "server-security.js",
+     "ui-polish.js",
++    "kiosk-core.js",
++    "kiosk-admin.js",
++    "kiosk-admin.css",
++    "kiosk-client.js",
++    "kiosk.css",
++    "kiosk.html",
+     "ui-prefs-lib.js",
+     "ui-prefs-boot.js",
+     "ui-prefs.js",
+diff --git a/server-bridge.js b/server-bridge.js
+index d9b4d95..d08e866 100644
+--- a/server-bridge.js
++++ b/server-bridge.js
+@@ -564,6 +564,18 @@
+     'deletePart': 'delete-part',
+     'getAllPrinters': 'get-all-printers',
+     'getPrintOutcomeStats': 'get-print-outcome-stats',
++    'getKioskSettings': 'kiosk-get-settings',
++    'saveKioskSettings': 'kiosk-save-settings',
++    'listKioskItems': 'kiosk-list-items',
++    'searchKioskModels': 'kiosk-search-models',
++    'saveKioskItem': 'kiosk-save-item',
++    'removeKioskItem': 'kiosk-remove-item',
++    'listKioskRequests': 'kiosk-list-requests',
++    'updateKioskRequest': 'kiosk-update-request',
++    'deleteKioskRequest': 'kiosk-delete-request',
++    'getKioskRequestCount': 'kiosk-request-count',
++    'previewKioskQuote': 'kiosk-preview-quote',
++    'testKioskWebhook': 'kiosk-test-webhook',
+     'discoverPrinters': 'discover-printers',
+     'getLocalScanNetworks': 'get-local-scan-networks',
+     'getPrinterStatuses': 'get-printer-statuses',
+@@ -713,6 +725,10 @@
+     window.electron.on('open-printer-management', callback);
+   };
+ 
++  window.electron.onOpenKioskAdmin = function(callback) {
++    window.electron.on('open-kiosk-admin', callback);
++  };
++
+   window.electron.onOpenDisplayPrefs = function(callback) {
+     window.electron.on('open-display-prefs', callback);
+   };
