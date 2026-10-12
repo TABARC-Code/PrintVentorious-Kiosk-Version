@@ -15,7 +15,6 @@
   let lastTouch = Date.now();
   let idleTimer = null;
   let resetTimer = null;
-  let size = 1;
   let dirty = false;
 
   const $ = (id) => document.getElementById(id);
@@ -41,16 +40,24 @@
     return data;
   }
 
-  function show(heading, ...content) {
+  // Three plain steps, always shown, so nobody has to guess where they are.
+  const STEPS = ['Pick something', 'Check your price', 'Sent'];
+  function steps(n) {
+    return el('ol', { class: 'k-steps', 'aria-label': `Step ${n} of 3` },
+      STEPS.map((t, i) => el('li', { class: i + 1 < n ? 'k-did' : null, 'aria-current': i + 1 === n ? 'step' : null }, `${i + 1}. ${t}`)));
+  }
+
+  function show(heading, step, ...content) {
     main.textContent = '';
     const h = el('h2', { id: 'k-screen-title', text: heading, tabindex: '-1' });
-    main.append(h, ...content);
+    main.append(steps(step), h, ...content);
     h.focus({ preventScroll: false });
     window.scrollTo(0, 0);
   }
 
-  function reset() {
+  function reset(clearPrefs) {
     clearTimeout(resetTimer);
+    if (clearPrefs === true) setPrefs(DEFAULT_PREFS);   // a shared screen: the next person starts from the defaults
     state = { q: '', offset: 0, items: [], total: 0 };
     $('k-idle').hidden = true;
     dirty = false;
@@ -61,11 +68,11 @@
   async function catalogue() {
     const input = el('input', { type: 'search', id: 'k-q', autocomplete: 'off', 'aria-label': 'Search the catalogue', placeholder: 'Search by name or designer', value: state.q });
     const go = () => { state.q = input.value.trim(); state.offset = 0; state.items = []; loadItems(true); };
-    const form = el('form', { class: 'k-search', onsubmit: (e) => { e.preventDefault(); go(); } }, input, el('button', { type: 'submit', class: 'k-btn' }, 'Search'));
+    const form = el('form', { class: 'k-search', onsubmit: (e) => { e.preventDefault(); go(); } }, input, el('button', { type: 'submit', class: 'k-btn' }, 'Find it'));
     const grid = el('div', { class: 'k-grid', id: 'k-grid' });
     const more = el('div', { class: 'k-more' });
     const status = el('p', { id: 'k-status', 'aria-live': 'polite' });
-    show(config.title, config.intro ? el('p', { text: config.intro }) : null, config.ready ? null : el('p', { class: 'k-error', text: 'Pricing is not set up yet. You can look around, but please ask staff for a quote.' }), form, status, grid, more);
+    show(config.title, 1, config.intro ? el('p', { text: config.intro }) : null, config.ready ? null : el('p', { class: 'k-error', text: 'Pricing is not set up yet. You can look around, but please ask staff for a quote.' }), form, status, grid, more);
     await loadItems(true);
 
     async function loadItems(fresh) {
@@ -84,7 +91,7 @@
   function card(it) {
     return el('button', { type: 'button', class: 'k-card', onclick: () => itemScreen(it) },
       el('img', { src: `/api/kiosk/thumb/${it.id}`, alt: '', loading: 'lazy' }),
-      el('span', { class: 'k-card-body' }, el('strong', { text: it.name }), it.designer ? el('small', { text: `by ${it.designer}` }) : null));
+      el('span', { class: 'k-card-body' }, el('strong', { text: it.name }), it.designer ? el('small', { text: `by ${it.designer}` }) : null, el('span', { class: 'k-pick', text: 'Choose this' })));
   }
 
   function itemScreen(it) {
@@ -98,8 +105,8 @@
       error.textContent = ''; setQty(Number(input.value)); quoteBtn.disabled = true;
       try { quoteScreen(it, await api('/quote', { itemId: it.id, quantity: qty })); }
       catch (e) { error.textContent = e.message; quoteBtn.disabled = !config.ready; }
-    } }, 'Get my quote');
-    show(it.name,
+    } }, 'See my price');
+    show(it.name, 1,
       el('div', { class: 'k-item' },
         el('img', { src: `/api/kiosk/thumb/${it.id}`, alt: it.name }),
         el('div', {},
@@ -108,7 +115,7 @@
           el('label', { for: 'k-qty', text: 'How many would you like?' }),
           el('div', { class: 'k-qty' }, el('button', { type: 'button', 'aria-label': 'One fewer', onclick: () => setQty(qty - 1) }, '-'), input, el('button', { type: 'button', 'aria-label': 'One more', onclick: () => setQty(qty + 1) }, '+')),
           error,
-          el('div', { class: 'k-actions' }, quoteBtn, el('button', { type: 'button', class: 'k-btn k-secondary', onclick: catalogue }, 'Back to the catalogue')))));
+          el('div', { class: 'k-actions' }, quoteBtn, el('button', { type: 'button', class: 'k-btn k-secondary', onclick: catalogue }, 'Go back')))));
   }
 
   function quoteScreen(it, q) {
@@ -117,7 +124,7 @@
     const name = el('input', { type: 'text', id: 'k-name', autocomplete: 'off', maxlength: '80' });
     const message = el('textarea', { id: 'k-msg', maxlength: '500', autocomplete: 'off', placeholder: 'Colour, size, when you need it...' });
     const trap = el('input', { type: 'text', class: 'k-hp', name: 'website', tabindex: '-1', autocomplete: 'off', 'aria-hidden': 'true' });
-    const send = el('button', { type: 'submit', class: 'k-btn' }, 'Send my request');
+    const send = el('button', { type: 'submit', class: 'k-btn' }, 'Send to us');
     const until = new Date(q.validUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     const form = el('form', { novalidate: true, onsubmit: async (e) => {
       e.preventDefault(); error.textContent = ''; send.disabled = true;
@@ -133,27 +140,28 @@
       el('label', { for: 'k-msg', text: 'Anything we should know? (optional)' }), message,
       trap, error,
       el('p', { id: 'k-privacy', text: config.privacy }),
-      el('div', { class: 'k-actions' }, send, el('button', { type: 'button', class: 'k-btn k-secondary', onclick: () => itemScreen(it) }, 'Change my order'), el('button', { type: 'button', class: 'k-btn k-secondary', onclick: reset }, 'Start again')));
+      el('div', { class: 'k-actions' }, send, el('button', { type: 'button', class: 'k-btn k-secondary', onclick: () => itemScreen(it) }, 'Go back'), el('button', { type: 'button', class: 'k-btn k-secondary', onclick: () => reset() }, 'Start again')));
 
-    show('Your quote',
+    show('Your price', 2,
       el('div', { class: 'k-box' },
         el('p', { text: `${q.quantity} x ${q.name}` }),
         q.showPrice
           ? [el('div', { class: 'k-price', text: money(q.total) }), el('p', { text: q.quantity > 1 ? `That is ${money(q.unitPrice)} each.` : '' }), el('p', { text: `This is an estimate, valid until ${until}. We confirm the final price when we reply.` })]
           : [el('p', { text: `We will work out the price and email it to you. Our offer will be valid until ${until}.` })]),
+      el('div', { class: 'k-box k-next' }, el('h3', { text: 'What happens next?' }), el('ol', {}, el('li', { text: 'You send us this form.' }), el('li', { text: 'We read it and check the price.' }), el('li', { text: 'We email you. You do not pay anything now.' }))),
       form);
   }
 
   function doneScreen(r) {
     dirty = true;
-    show('Thank you, your request has been sent',
+    show('Thank you. We have your request.', 3,
       el('div', { class: 'k-box' },
         el('p', { text: 'Your reference number is:' }),
         el('div', { class: 'k-ref', text: r.reference }),
-        el('p', { text: 'Please quote it if you contact us. We will reply by email.' })),
-      el('div', { class: 'k-actions' }, el('button', { type: 'button', class: 'k-btn', onclick: reset }, 'Start again')),
+        el('p', { text: 'Keep this number. We will email you.' })),
+      el('div', { class: 'k-actions' }, el('button', { type: 'button', class: 'k-btn', onclick: () => reset() }, 'Start again')),
       el('p', { text: 'This screen will clear itself shortly.' }));
-    resetTimer = setTimeout(reset, 45000);
+    resetTimer = setTimeout(() => reset(true), 45000);
   }
 
   // ---------- idle clear ----------
@@ -165,7 +173,7 @@
     idleTimer = setInterval(() => {
       const idleFor = (Date.now() - lastTouch) / 1000;
       const limit = config.idleSeconds;
-      if (idleFor >= limit) { lastTouch = Date.now(); reset(); }
+      if (idleFor >= limit) { lastTouch = Date.now(); reset(true); }
       else if (dirty && idleFor >= limit - 15) { $('k-idle').hidden = false; $('k-idle-count').textContent = String(Math.max(0, Math.ceil(limit - idleFor))); }
     }, 1000);
   }
@@ -173,14 +181,59 @@
   async function start() {
     ['pointerdown', 'keydown', 'input', 'touchstart'].forEach((ev) => document.addEventListener(ev, touch, { passive: true }));
     $('k-idle-stay').addEventListener('click', touch);
-    $('k-smaller').addEventListener('click', () => setSize(size - 0.15));
-    $('k-larger').addEventListener('click', () => setSize(size + 0.15));
+    buildOptions();
     try { config = Object.assign(config, await api('/config')); } catch (e) { main.textContent = ''; main.append(el('p', { class: 'k-error', text: 'This service is not available right now.' })); return; }
     document.title = config.title; $('k-title').textContent = config.title;
     watchIdle();
     reset();
   }
-  function setSize(n) { size = Math.max(0.85, Math.min(1.6, n)); document.documentElement.style.setProperty('--size', String(size)); }   // lives in memory only
+  // ---------- reading options ----------
+  // Held in this variable and as classes on <html>. Never written anywhere. The idle clear (and the
+  // clear after an order) puts them back, so the next person on a shared screen starts clean.
+  // I'm not claiming any of this "fixes" dyslexia: the evidence on fonts is mixed. It's here because
+  // people have preferences and it costs nothing to let them choose.
+  const DEFAULT_PREFS = Object.freeze({ font: 'standard', size: '1', space: 'normal', colour: 'dark' });
+  const OPTIONS = [
+    { key: 'font', label: 'Letters', choices: [['standard', 'Standard'], ['atkinson', 'Easy read'], ['lexend', 'Wide and open']] },
+    { key: 'size', label: 'Size', choices: [['1', 'Normal'], ['1.25', 'Big'], ['1.5', 'Bigger'], ['1.75', 'Biggest']] },
+    { key: 'space', label: 'Spacing', choices: [['normal', 'Normal'], ['roomy', 'Roomy']] },
+    { key: 'colour', label: 'Colours', choices: [['dark', 'Dark'], ['cream', 'Soft cream'], ['contrast', 'Strong contrast']] }
+  ];
+  const CLASS_FOR = { font: { atkinson: 'f-atkinson', lexend: 'f-lexend' }, space: { roomy: 'sp-roomy' }, colour: { cream: 'c-cream', contrast: 'c-contrast' } };
+  let prefs = Object.assign({}, DEFAULT_PREFS);
+
+  function setPrefs(next) {
+    prefs = Object.assign({}, DEFAULT_PREFS, next);
+    const root = document.documentElement;
+    for (const map of Object.values(CLASS_FOR)) for (const c of Object.values(map)) root.classList.remove(c);
+    for (const [k, map] of Object.entries(CLASS_FOR)) { const c = map[prefs[k]]; if (c) root.classList.add(c); }
+    root.style.setProperty('--size', prefs.size);
+    document.querySelectorAll('#k-opts input[type=radio]').forEach((r) => { r.checked = prefs[r.name] === r.value; });
+  }
+
+  function buildOptions() {
+    const grid = $('k-opts-grid');
+    for (const o of OPTIONS) {
+      const fs = el('fieldset', {}, el('legend', { text: o.label }));
+      const row = el('div', { class: 'k-choice' });
+      for (const [value, text] of o.choices) {
+        const id = `k-o-${o.key}-${value.replace('.', '_')}`;
+        row.append(el('label', { for: id }, el('input', { type: 'radio', name: o.key, value, id, onchange: () => setPrefs(Object.assign({}, prefs, { [o.key]: value })) }), el('span', { text })));
+      }
+      fs.append(row); grid.append(fs);
+    }
+    const btn = $('k-opts-btn'), panel = $('k-opts');
+    const toggle = (open) => {
+      panel.hidden = !open; btn.setAttribute('aria-expanded', String(open));
+      if (open) $('k-opts-title').focus(); else btn.focus();
+    };
+    $('k-opts-title').setAttribute('tabindex', '-1');
+    btn.addEventListener('click', () => toggle(panel.hidden));
+    $('k-opts-close').addEventListener('click', () => toggle(false));
+    $('k-opts-reset').addEventListener('click', () => setPrefs(DEFAULT_PREFS));
+    panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') toggle(false); });
+    setPrefs(DEFAULT_PREFS);
+  }
 
   start();
 })();

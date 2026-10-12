@@ -13,12 +13,16 @@ npm install
 npm start          # http://localhost:5080/kiosk
 npm run inbox      # list what customers have sent (add --all for everything)
 npm test           # unit + HTTP tests
-npm run test:browser   # Playwright; needs CHROMIUM_PATH pointing at a Chromium
+npm run test:browser   # Playwright + axe; needs CHROMIUM_PATH pointing at a Chromium
 ```
 
 `npm start` seeds six **demo** items with invented costs when the catalogue is empty. They are placeholders. Don't quote them to real people.
 
 Environment: `PORT` (5080), `KIOSK_DB` (`./data/kiosk.db`), `KIOSK_WEBHOOK` (https only; http allowed for localhost).
+
+## Easy read
+
+A **Reading options** button on the page: three font choices (Inter, Atkinson Hyperlegible, Lexend, all bundled, SIL OFL), four text sizes, roomy spacing, and dark, soft cream or strong contrast colours. Plus a three step line and plain wording. Choices live in memory only and reset when the screen is left idle. No claim it fixes dyslexia, the evidence is mixed.
 
 ## What's in here
 

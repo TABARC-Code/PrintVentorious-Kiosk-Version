@@ -396,8 +396,16 @@ const ASSETS = Object.freeze({
   '/kiosk': ['kiosk.html', 'text/html; charset=utf-8'],
   '/kiosk/app.js': ['kiosk-client.js', 'text/javascript; charset=utf-8'],
   '/kiosk/app.css': ['kiosk.css', 'text/css; charset=utf-8'],
+  // Three reading fonts. The browser only downloads a face once the page actually uses it.
   '/kiosk/fonts/inter.css': ['fonts/inter.css', 'text/css; charset=utf-8'],
-  '/kiosk/fonts/inter-normal-100-900-latin.woff2': ['fonts/inter-normal-100-900-latin.woff2', 'font/woff2']
+  '/kiosk/fonts/atkinson.css': ['fonts/atkinson.css', 'text/css; charset=utf-8'],
+  '/kiosk/fonts/lexend.css': ['fonts/lexend.css', 'text/css; charset=utf-8'],
+  '/kiosk/fonts/inter-normal-100-900-latin.woff2': ['fonts/inter-normal-100-900-latin.woff2', 'font/woff2'],
+  '/kiosk/fonts/lexend-normal-100-900-latin.woff2': ['fonts/lexend-normal-100-900-latin.woff2', 'font/woff2'],
+  '/kiosk/fonts/atkinson-hyperlegible-normal-400-latin.woff2': ['fonts/atkinson-hyperlegible-normal-400-latin.woff2', 'font/woff2'],
+  '/kiosk/fonts/atkinson-hyperlegible-normal-700-latin.woff2': ['fonts/atkinson-hyperlegible-normal-700-latin.woff2', 'font/woff2'],
+  '/kiosk/fonts/atkinson-hyperlegible-italic-400-latin.woff2': ['fonts/atkinson-hyperlegible-italic-400-latin.woff2', 'font/woff2'],
+  '/kiosk/fonts/atkinson-hyperlegible-italic-700-latin.woff2': ['fonts/atkinson-hyperlegible-italic-700-latin.woff2', 'font/woff2']
 });
 
 function securityHeaders(res) {

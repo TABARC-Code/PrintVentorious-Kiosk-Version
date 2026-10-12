@@ -7,16 +7,19 @@
     "start": "node server.js",
     "inbox": "node scripts/inbox.js",
     "test": "node scripts/run-tests.js",
-    "test:browser": "node tests/kiosk.smoke.cjs"
+    "test:browser": "node tests/kiosk.smoke.cjs && node tests/kiosk.axe.cjs"
   },
   "author": "TABARC-Code",
   "license": "UNLICENSED",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
     "express": "^4.18.2"
   },
   "devDependencies": {
+    "axe-core": "^4.14.0",
     "playwright-core": "^1.58.0"
   }
 }

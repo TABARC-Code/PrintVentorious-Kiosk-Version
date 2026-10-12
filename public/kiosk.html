@@ -6,17 +6,25 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Get a print quote</title>
   <link rel="stylesheet" href="/kiosk/fonts/inter.css">
+  <link rel="stylesheet" href="/kiosk/fonts/atkinson.css">
+  <link rel="stylesheet" href="/kiosk/fonts/lexend.css">
   <link rel="stylesheet" href="/kiosk/app.css">
 </head>
 <body>
   <!-- This page stores nothing on the device: no cookies, no local storage, no session. See kiosk-core.js. -->
   <header class="k-header">
     <h1 id="k-title">Get a print quote</h1>
-    <div class="k-textsize" role="group" aria-label="Text size">
-      <button type="button" id="k-smaller" aria-label="Smaller text">A-</button>
-      <button type="button" id="k-larger" aria-label="Larger text">A+</button>
-    </div>
+    <button type="button" id="k-opts-btn" class="k-opts-btn" aria-expanded="false" aria-controls="k-opts">Reading options</button>
   </header>
+  <section id="k-opts" class="k-opts" aria-labelledby="k-opts-title" hidden>
+    <h2 id="k-opts-title">Make it easier to read</h2>
+    <p class="k-opts-note">These stay on this screen only until you finish or leave it. Nothing is saved.</p>
+    <div class="k-opts-grid" id="k-opts-grid"></div>
+    <div class="k-actions">
+      <button type="button" id="k-opts-reset" class="k-btn k-secondary">Put it back how it was</button>
+      <button type="button" id="k-opts-close" class="k-btn">Done</button>
+    </div>
+  </section>
   <main id="k-main" tabindex="-1" aria-live="polite"></main>
   <div id="k-idle" class="k-idle" role="alertdialog" aria-modal="true" aria-labelledby="k-idle-title" hidden>
     <div class="k-idle-box">

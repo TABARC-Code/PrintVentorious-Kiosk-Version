@@ -13,9 +13,24 @@ A simple page customers can use to get a price and send you a request. They pick
 
 The customer's device keeps nothing. No cookies, no local storage, no session. The page clears after it has been left alone for a while, and after each order, so the next person doesn't see the last one's details.
 
+## Reading options
+
+A **Reading options** button at the top opens a small panel. Everything in it is a plain choice, no jargon:
+
+- **Letters:** Standard (Inter), Easy read (Atkinson Hyperlegible) or Wide and open (Lexend). All three are bundled with their SIL OFL licences, so nothing is fetched from Google at the customer's end.
+- **Size:** Normal, Big, Bigger, Biggest.
+- **Spacing:** Normal or Roomy (more line height, a little extra letter and word spacing).
+- **Colours:** Dark, Soft cream, or Strong contrast (black and yellow).
+
+I'm not claiming these cure dyslexia. The research on "dyslexia fonts" is mixed, and some people simply read better with wider spacing or a calmer background. The point is that people choose what works for them. Nobody has to explain themselves.
+
+Choices live in memory and as classes on the page. They aren't stored. The idle clear, and the clear after an order, put them back to the defaults so the next person on a shared screen starts clean. "Start again" keeps them, since that's usually the same person.
+
+There's also a plain **step line** (1. Pick something, 2. Check your price, 3. Sent), short sentences, buttons that say what they do (Choose this, See my price, Send to us, Go back), and a "What happens next?" box before anyone types an email address. Text is left aligned with short lines, never justified.
+
 ## How you run it
 
-Open **Quote requests** (Tools menu, or the web menu; a shortcut appears under the library buttons once it's on).
+In the standalone repo the catalogue and settings are rows in the SQLite database and `npm run inbox` lists what's arrived. Inside Printventory (see `integration/printventory/`) it's the **Quote requests** dialog.
 
 - **Settings.** The switch is off until you turn it on. While it's off every address under `/kiosk` answers "not available". You can also set the page title and welcome text, whether customers see the price, how long a quote is valid, a minimum charge, how long before the screen clears, how long requests are kept, and an optional webhook.
 - **Catalogue.** Only models you add here are shown to customers. For each you enter the print time and filament weight per plate, how many fit on a plate, and a filament. The dialog shows you what a customer would be quoted and what it costs you. The model's licence is shown beside it, because you need to be allowed to sell prints of it. I can't tell you whether you are.
@@ -50,7 +65,7 @@ Payment, customer file uploads, customer accounts, email sending, and a page for
 
 ## Checked, and not
 
-Tested: 21 unit tests of the quote logic and HTTP behaviour against a real in-memory database; a test of the mount order; a browser test of the whole customer flow (including that the browser is left with no cookies or storage, that an idle half-finished order is cleared, and that nothing leaves the server); a browser test of the admin side against the real handlers (including that hostile text from a customer can't inject anything); axe-core reports no violations on all four customer screens.
+Tested: 21 unit tests of the quote logic and HTTP behaviour against a real in-memory database; a test of the mount order; a browser test of the whole customer flow (including that the browser is left with no cookies or storage, that an idle half-finished order is cleared, and that nothing leaves the server); a browser test of the admin side against the real handlers (including that hostile text from a customer can't inject anything); axe-core reports no violations on all five customer screens in nine combinations of colour, font and text size (`tests/kiosk.axe.cjs`). axe finds only part of what can go wrong, so please have a real person try it.
 
 Not checked: the Electron desktop app (no Electron here), a real Discord or Slack webhook, a real phone or tablet, and a real library with real thumbnails.
 

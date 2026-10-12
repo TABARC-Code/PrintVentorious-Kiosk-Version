@@ -69,7 +69,7 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
     assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'k-screen-title', 'focus moves to the new screen heading');
     await page.click('button[aria-label="One more"]');
     assert.strictEqual(await page.inputValue('#k-qty'), '2');
-    await page.click('text=Get my quote');
+    await page.click('text=See my price');
     await page.waitForSelector('.k-price');
     const expected = K.computeQuote({ farmConfig: FARM, item: K.offeredItem(db, a), quantity: 2, settings: K.normaliseSettings({}) });
     assert.strictEqual(await page.textContent('.k-price'), `£${expected.total.toFixed(2)}`, 'the page shows the server price');
@@ -78,11 +78,11 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
     for (const secret of ['profit', 'margin', 'internal']) assert.ok(!visible.includes(secret), `page mentions ${secret}`);
 
     // email checks, then send
-    await page.fill('#k-email', 'not-an-email'); await page.click('text=Send my request');
+    await page.fill('#k-email', 'not-an-email'); await page.click('text=Send to us');
     await page.waitForSelector('.k-error:not(:empty)');
     assert.ok((await page.textContent('.k-error')).includes('valid email'));
     await page.fill('#k-email', 'sam@example.com'); await page.fill('#k-name', 'Sam'); await page.fill('#k-msg', 'Red please');
-    await page.click('text=Send my request');
+    await page.click('text=Send to us');
     await page.waitForSelector('.k-ref');
     const ref = await page.textContent('.k-ref');
     assert.ok(/^Q-[A-Z2-9]{6}$/.test(ref), ref);
@@ -101,6 +101,34 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
     await page.waitForSelector('.k-card');
     assert.ok(!(await page.content()).includes('sam@example.com'), 'no trace of the customer on the page');
 
+    // simple concepts: the step line says where you are
+    assert.strictEqual(await page.getAttribute('.k-steps', 'aria-label'), 'Step 1 of 3');
+    assert.strictEqual(await page.textContent('.k-steps li[aria-current="step"]'), '1. Pick something');
+
+    // reading options: apply, check they bite, check nothing is stored
+    await page.click('#k-opts-btn');
+    assert.strictEqual(await page.getAttribute('#k-opts-btn', 'aria-expanded'), 'true');
+    assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'k-opts-title', 'focus moves into the panel');
+    await page.check('input[name="font"][value="atkinson"]', { force: true });
+    await page.check('input[name="size"][value="1.75"]', { force: true });
+    await page.check('input[name="colour"][value="cream"]', { force: true });
+    await page.check('input[name="space"][value="roomy"]', { force: true });
+    const look = await page.evaluate(() => ({ font: getComputedStyle(document.body).fontFamily, root: getComputedStyle(document.documentElement).fontSize, bg: getComputedStyle(document.body).backgroundColor, cls: document.documentElement.className }));
+    assert.ok(look.font.startsWith('"Atkinson Hyperlegible"'), look.font);
+    assert.strictEqual(look.root, `${18 * 1.75}px`);
+    assert.strictEqual(look.bg, 'rgb(247, 239, 216)');
+    await page.waitForFunction(() => [...document.fonts].some((f) => f.family.replace(/["']/g, '') === 'Atkinson Hyperlegible' && f.status === 'loaded'), null, { timeout: 5000 });
+    await page.check('input[name="font"][value="lexend"]', { force: true });
+    await page.waitForFunction(() => [...document.fonts].some((f) => f.family.replace(/["']/g, '') === 'Lexend' && f.status === 'loaded'), null, { timeout: 5000 });
+    await page.keyboard.press('Escape');
+    assert.strictEqual(await page.getAttribute('#k-opts-btn', 'aria-expanded'), 'false');
+    assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'k-opts-btn', 'Escape hands focus back');
+    const stored = await page.evaluate(async () => ({ local: localStorage.length, session: sessionStorage.length, cookie: document.cookie, dbs: (await indexedDB.databases()).length }));
+    assert.deepStrictEqual(stored, { local: 0, session: 0, cookie: '', dbs: 0 }, 'preferences are not stored anywhere');
+    await page.setViewportSize({ width: 375, height: 800 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'no sideways scrolling on a phone at the biggest size');
+    await page.setViewportSize({ width: 1100, height: 800 });
+
     // idle clear: after the idle time a half-finished order is wiped (the page clock is sped up)
     await page.click('.k-card:has-text("Dragon")'); await page.waitForSelector('#k-qty');
     await page.clock.install({ time: Date.now() }).catch(() => {});
@@ -108,6 +136,7 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
       await page.clock.fastForward(30000);
       await page.waitForSelector('.k-card', { timeout: 5000 });
       assert.ok(!(await page.$('#k-qty')), 'a half-finished order is cleared after the idle time');
+      assert.strictEqual(await page.evaluate(() => document.documentElement.className), '', 'reading options go back to the defaults for the next person');
     }
 
     assert.deepStrictEqual(errors, [], `page errors: ${errors.join('; ')}`);
