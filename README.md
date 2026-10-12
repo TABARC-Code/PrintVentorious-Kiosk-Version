@@ -37,6 +37,10 @@ A **Reading options** button on the page: three font choices (Inter, Atkinson Hy
 
 ## Not done
 
-Payment, uploads, accounts, email sending. Each one makes a quote form into a proper security problem. Also: no LICENSE file yet, that's my call to make, so treat it as all rights reserved until I do.
+Payment, uploads, accounts, email sending. Each one makes a quote form into a proper security problem. 
+
+## Licence
+
+MIT, see `LICENSE`. The bundled fonts keep their own SIL OFL 1.1 licences (`public/fonts/licences/`). The model licences of whatever you put in your catalogue are your problem, not mine.
 
 Author: TABARC-Code

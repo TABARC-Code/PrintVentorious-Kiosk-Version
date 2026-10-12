@@ -10,7 +10,7 @@
     "test:browser": "node tests/kiosk.smoke.cjs && node tests/kiosk.axe.cjs"
   },
   "author": "TABARC-Code",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=20"
   },
