@@ -12,6 +12,7 @@
  * made up. Do not quote real customers from them. Replace them with your own (see README.md).
  *
  * Environment:  PORT (5080)  KIOSK_DB (./data/kiosk.db)  KIOSK_WEBHOOK (optional https address)
+ *              KIOSK_SMTP_URL, KIOSK_MAIL_FROM, KIOSK_MAIL_REPLY_TO (optional: lets customers tick "email me a copy")
  *
  * There is deliberately no admin web page here. Settings and items are plain rows in the database
  * (settings, kiosk_items, models), and the inbox is `npm run inbox`. An admin interface is a separate piece
@@ -24,6 +25,7 @@ const path = require('path');
 const express = require('express');
 const Database = require('better-sqlite3');
 const K = require('./src/kiosk-core');
+const { mailerFromEnv } = require('./src/mailer');
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
@@ -43,20 +45,20 @@ const setSetting = (db, key, value) => db.prepare('INSERT OR REPLACE INTO settin
 /** Demo content, only when the library is empty. Every number here is invented. */
 function seedDemo(db) {
   if (db.prepare('SELECT COUNT(*) AS n FROM models').get().n > 0) return false;
-  const items = [['Phone stand', 'Demo Designs', 3, 50, 'Fits most phones'], ['Cable organiser', 'Demo Designs', 1.5, 25, ''], ['Plant pot', 'Demo Designs', 5, 110, 'Drainage hole included'], ['Chess pawn', 'Demo Designs', 1, 18, 'Sold singly'], ['Desk tidy', 'Demo Designs', 6, 140, ''], ['Key hook', 'Demo Designs', 2, 40, '']];
-  for (const [name, designer, hours, grams, note] of items) {
+  const items = [['Phone stand', 'Demo Designs', 3, 50, 'Fits most phones', 'About 10 x 8 x 9 cm'], ['Cable organiser', 'Demo Designs', 1.5, 25, '', 'About 6 x 4 x 3 cm'], ['Plant pot', 'Demo Designs', 5, 110, 'Drainage hole included', 'About 12 cm wide, 11 cm tall'], ['Chess pawn', 'Demo Designs', 1, 18, 'Sold singly', 'About 2.5 cm wide, 4 cm tall'], ['Desk tidy', 'Demo Designs', 6, 140, '', 'About 15 x 10 x 8 cm'], ['Key hook', 'Demo Designs', 2, 40, '', 'About 14 x 4 x 3 cm']];
+  for (const [name, designer, hours, grams, note, sizeNote] of items) {
     const id = db.prepare('INSERT INTO models (fileName, designer, license, thumbnail) VALUES (?, ?, ?, ?)').run(`${name}.stl`, designer, 'DEMO', PNG).lastInsertRowid;
-    K.saveItem(db, { modelId: id, printHours: hours, grams, unitsPerPlate: 1, filamentId: 1, note });
+    K.saveItem(db, { modelId: id, printHours: hours, grams, unitsPerPlate: 1, filamentId: 1, note, sizeNote });
   }
   setSetting(db, 'farmCostConfig', JSON.stringify({ currency: '£', electricityRate: 0.25, labourRate: 15, failureRatePct: 8, targetMarginPct: 40, printers: { 1: { price: 400, lifetimeHours: 2000, watts: 150, hoursPerMonth: 400 } }, filaments: { 1: { spoolPrice: 20, spoolGrams: 1000 } } }));
   setSetting(db, K.SETTINGS_KEY, JSON.stringify({ enabled: true, title: 'Get a print quote (DEMO)' }));
   return true;
 }
 
-function createApp({ db, publicDir = path.join(__dirname, 'public'), onNewRequest } = {}) {
+function createApp({ db, publicDir = path.join(__dirname, 'public'), onNewRequest, mailer = null, mailDailyCap = 200 } = {}) {
   const app = express();
   app.disable('x-powered-by');
-  K.registerRoutes(app, { getDb: () => db, getSetting: getSetting(db), publicDir, onNewRequest });
+  K.registerRoutes(app, { getDb: () => db, getSetting: getSetting(db), publicDir, onNewRequest, mailer, mailAllowed: mailer ? K.createDailyCap(mailDailyCap) : undefined });
   app.get('/', (req, res) => res.redirect('/kiosk'));
   app.use((req, res) => res.status(404).type('text/plain').send('Not found'));
   return app;
@@ -72,7 +74,7 @@ if (require.main === module) {
   const purge = () => { try { K.purgeOld(db, K.loadSettings(getSetting(db)).retentionDays); } catch (e) { console.error('purge failed:', e.message); } };
   purge(); setInterval(purge, 6 * 60 * 60 * 1000).unref();
   const port = Number(process.env.PORT) || 5080;
-  createApp({ db }).listen(port, () => console.log(`Quote page: http://localhost:${port}/kiosk`));
+  createApp({ db, mailer: mailerFromEnv() }).listen(port, () => console.log(`Quote page: http://localhost:${port}/kiosk`));
 }
 
 module.exports = { createApp, openDb, seedDemo, getSetting, setSetting };

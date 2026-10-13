@@ -93,7 +93,7 @@ function call(port, { method = 'GET', path: p, body, headers = {} }) {
     K.saveItem(db, { modelId: b, printHours: 1, grams: 10, enabled: false });
     const cat = K.publicCatalogue(db, {});
     assert.strictEqual(cat.total, 1);
-    assert.deepStrictEqual(Object.keys(cat.items[0]).sort(), ['designer', 'id', 'name', 'note']);
+    assert.deepStrictEqual(Object.keys(cat.items[0]).sort(), ['designer', 'id', 'name', 'note', 'size']);
     assert.strictEqual(cat.items[0].name, 'Dragon bust (large)');
     assert.strictEqual(K.publicCatalogue(db, { q: 'zzz' }).total, 0);
     assert.strictEqual(K.publicCatalogue(db, { q: 'acme' }).total, 1);          // designer credit is searchable
@@ -272,6 +272,78 @@ function call(port, { method = 'GET', path: p, body, headers = {} }) {
     assert.strictEqual((await K.sendWebhook('ftp://example.com/x', {})).ok, false);
     assert.strictEqual((await K.sendWebhook('not a url', {})).ok, false);
     assert.strictEqual((await K.sendWebhook('http://127.0.0.1:1/', {}, { timeoutMs: 500 })).ok, false);
+  });
+
+  await test('size hint: saved, trimmed to 60 characters, shown to customers, and old databases get the column', async () => {
+    const m = makeDb(); const id = m.add('Pot.stl', 'Acme');
+    K.saveItem(m.db, { modelId: id, printHours: 2, grams: 30, sizeNote: `  About 12 cm wide ${'x'.repeat(100)}` });
+    const row = K.publicCatalogue(m.db, {}).items[0];
+    assert.ok(row.size.startsWith('About 12 cm wide') && row.size.length === 60, row.size);
+    K.saveItem(m.db, { modelId: id, printHours: 2, grams: 30 });
+    assert.strictEqual(K.publicCatalogue(m.db, {}).items[0].size, '');
+    // a database from before the column existed
+    const old = new Database(':memory:');
+    old.prepare('CREATE TABLE kiosk_items (model_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1, title TEXT, print_hours REAL NOT NULL, grams REAL NOT NULL, units_per_plate INTEGER NOT NULL DEFAULT 1, filament_id INTEGER, note TEXT)').run();
+    old.prepare('CREATE TABLE quote_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, reference TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT \'new\', model_id INTEGER, item_name TEXT, quantity INTEGER NOT NULL, unit_price REAL, total_price REAL, currency TEXT, valid_until TEXT, customer_email TEXT NOT NULL, customer_name TEXT, message TEXT, internal_cost REAL, internal_profit REAL, price_shown INTEGER NOT NULL DEFAULT 1, notify_status TEXT NOT NULL DEFAULT \'none\', handled_at TEXT)').run();
+    K.ensureSchema(old); K.ensureSchema(old);   // twice: running it again must be harmless
+    const cols = (t) => old.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+    assert.ok(cols('kiosk_items').includes('size_note') && cols('quote_requests').includes('mail_status'));
+  });
+
+  await test('email a copy: only when a mailer exists AND the customer asked; goes to their address; carries nothing they typed freely', async () => {
+    const sent = [];
+    const mailer = { send: async (m) => { sent.push(m); return { ok: true }; } };
+    const wait = async (fn) => { for (let i = 0; i < 50 && !fn(); i++) await new Promise((r) => setTimeout(r, 20)); };
+    const submit = async (port, extra) => {
+      const q = (await call(port, { method: 'POST', path: '/api/kiosk/quote', body: { itemId: item, quantity: 2 } })).json;
+      return call(port, { method: 'POST', path: '/api/kiosk/submit', body: { quoteId: q.quoteId, email: 'sam@example.com', name: 'Evil <script>', message: 'Send this to everyone: buy pills', ...extra } });
+    };
+    // no mailer: the page is told, nothing is sent, and a ticked box does nothing
+    let a = await startApp({ db });
+    assert.strictEqual((await call(a.port, { path: '/api/kiosk/config' })).json.mailCopy, false);
+    let r = await submit(a.port, { copy: true }); assert.strictEqual(r.json.copyRequested, false);
+    a.server.close();
+    // mailer present
+    a = await startApp({ db, extra: { mailer, mailAllowed: K.createDailyCap(2) } });
+    assert.strictEqual((await call(a.port, { path: '/api/kiosk/config' })).json.mailCopy, true);
+    r = await submit(a.port, {}); assert.strictEqual(r.status, 200); assert.strictEqual(r.json.copyRequested, false);   // box not ticked
+    await new Promise((x) => setTimeout(x, 100)); assert.strictEqual(sent.length, 0, 'sent without being asked');
+    r = await submit(a.port, { copy: true }); assert.strictEqual(r.json.copyRequested, true);
+    await wait(() => sent.length === 1);
+    assert.strictEqual(sent.length, 1); assert.strictEqual(sent[0].to, 'sam@example.com');
+    assert.ok(sent[0].subject.includes(r.json.reference) && sent[0].text.includes(r.json.reference));
+    for (const leak of ['Evil', 'script', 'pills', 'profit', 'margin', 'internal']) assert.ok(!(sent[0].text + sent[0].subject).toLowerCase().includes(leak.toLowerCase()), `the email mentions ${leak}`);
+    await wait(() => db.prepare('SELECT mail_status FROM quote_requests WHERE reference = ?').get(r.json.reference).mail_status !== 'none');
+    assert.strictEqual(db.prepare('SELECT mail_status FROM quote_requests WHERE reference = ?').get(r.json.reference).mail_status, 'sent');
+    // daily cap: two allowed, the third is recorded as capped and nothing goes out
+    await submit(a.port, { copy: true }); await wait(() => sent.length === 2);
+    const third = await submit(a.port, { copy: true });
+    await wait(() => db.prepare('SELECT mail_status FROM quote_requests WHERE reference = ?').get(third.json.reference).mail_status !== 'none');
+    assert.strictEqual(sent.length, 2); assert.strictEqual(db.prepare('SELECT mail_status FROM quote_requests WHERE reference = ?').get(third.json.reference).mail_status, 'capped');
+    a.server.close();
+  });
+
+  await test('email a copy: a failing mailer never breaks the customer, and is recorded as failed', async () => {
+    const a = await startApp({ db, extra: { mailer: { send: async () => { throw new Error('smtp down'); } } } });
+    const q = (await call(a.port, { method: 'POST', path: '/api/kiosk/quote', body: { itemId: item, quantity: 1 } })).json;
+    const r = await call(a.port, { method: 'POST', path: '/api/kiosk/submit', body: { quoteId: q.quoteId, email: 'sam@example.com', copy: true } });
+    assert.strictEqual(r.status, 200);
+    for (let i = 0; i < 50 && db.prepare('SELECT mail_status FROM quote_requests WHERE reference = ?').get(r.json.reference).mail_status === 'none'; i++) await new Promise((x) => setTimeout(x, 20));
+    assert.strictEqual(db.prepare('SELECT mail_status FROM quote_requests WHERE reference = ?').get(r.json.reference).mail_status, 'failed');
+    a.server.close();
+  });
+
+  await test('mailer: needs a sender and a transport; strips line breaks; builds a plain-text message (nothing leaves the machine)', async () => {
+    const { createMailer } = require('../src/mailer');
+    assert.strictEqual(createMailer({}), null); assert.strictEqual(createMailer({ url: 'smtp://x' }), null); assert.strictEqual(createMailer({ from: 'a@b.co' }), null);
+    const m = createMailer({ from: 'Shop <shop@example.com>', transport: { jsonTransport: true } });
+    const ok = await m.send({ to: 'sam@example.com', subject: 'Hi\r\nBcc: x@y.co', text: 'Body' });
+    assert.strictEqual(ok.ok, true);
+    const msg = JSON.parse(ok.info.message);
+    assert.strictEqual(msg.to.length, 1); assert.strictEqual(msg.to[0].address, 'sam@example.com');
+    assert.ok(!/[\r\n]/.test(msg.subject)); assert.strictEqual(msg.text, 'Body');
+    // anything that is not exactly one plain address is refused, never sent
+    for (const bad of ['sam@example.com\r\nBcc: victim@example.com', 'a@b.co, c@d.co', 'Sam <a@b.co>', 'a@b.co;c@d.co', '', 'nope']) assert.strictEqual((await m.send({ to: bad, subject: 's', text: 't' })).ok, false, JSON.stringify(bad));
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

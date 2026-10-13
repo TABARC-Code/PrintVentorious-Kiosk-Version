@@ -118,7 +118,8 @@ function ensureSchema(db) {
     grams REAL NOT NULL,
     units_per_plate INTEGER NOT NULL DEFAULT 1,
     filament_id INTEGER,
-    note TEXT
+    note TEXT,
+    size_note TEXT
   )`).run();
   db.prepare(`CREATE TABLE IF NOT EXISTS quote_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,8 +140,13 @@ function ensureSchema(db) {
     internal_profit REAL,
     price_shown INTEGER NOT NULL DEFAULT 1,
     notify_status TEXT NOT NULL DEFAULT 'none',
-    handled_at TEXT
+    handled_at TEXT,
+    mail_status TEXT NOT NULL DEFAULT 'none'
   )`).run();
+  // Databases made before these columns existed. CREATE TABLE IF NOT EXISTS won't add them.
+  const addColumn = (table, col, ddl) => { if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col)) db.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`).run(); };
+  addColumn('kiosk_items', 'size_note', 'TEXT');
+  addColumn('quote_requests', 'mail_status', "TEXT NOT NULL DEFAULT 'none'");
   db.prepare('CREATE INDEX IF NOT EXISTS idx_quote_requests_status ON quote_requests(status, created_at)').run();
 }
 
@@ -158,10 +164,10 @@ function saveItem(db, input) {
   const perPlate = clampInt(input.unitsPerPlate, 1, 500, 1);
   const filamentId = input.filamentId === '' || input.filamentId == null ? null : Number(input.filamentId);
   if (filamentId !== null && !Number.isInteger(filamentId)) throw new Error('Choose a filament from the list.');
-  db.prepare(`INSERT INTO kiosk_items (model_id, enabled, title, print_hours, grams, units_per_plate, filament_id, note)
-    VALUES (@model_id, @enabled, @title, @print_hours, @grams, @units_per_plate, @filament_id, @note)
+  db.prepare(`INSERT INTO kiosk_items (model_id, enabled, title, print_hours, grams, units_per_plate, filament_id, note, size_note)
+    VALUES (@model_id, @enabled, @title, @print_hours, @grams, @units_per_plate, @filament_id, @note, @size_note)
     ON CONFLICT(model_id) DO UPDATE SET enabled = excluded.enabled, title = excluded.title, print_hours = excluded.print_hours,
-      grams = excluded.grams, units_per_plate = excluded.units_per_plate, filament_id = excluded.filament_id, note = excluded.note`).run({
+      grams = excluded.grams, units_per_plate = excluded.units_per_plate, filament_id = excluded.filament_id, note = excluded.note, size_note = excluded.size_note`).run({
     model_id: model.id,
     enabled: input.enabled === false ? 0 : 1,
     title: text(input.title, 120) || null,
@@ -169,7 +175,8 @@ function saveItem(db, input) {
     grams,
     units_per_plate: perPlate,
     filament_id: filamentId,
-    note: text(input.note, 300) || null
+    note: text(input.note, 300) || null,
+    size_note: text(input.sizeNote, 60) || null
   });
   return model.id;
 }
@@ -191,7 +198,7 @@ function searchModels(db, query, limit = 20) {
 
 /** What a customer may see: a name, a designer credit, a short note. Nothing about cost, files or paths. */
 function publicRow(row) {
-  return { id: row.model_id, name: row.title || stripExt(row.fileName), designer: row.designer && row.designer !== 'Unknown' ? row.designer : '', note: row.note || '' };
+  return { id: row.model_id, name: row.title || stripExt(row.fileName), designer: row.designer && row.designer !== 'Unknown' ? row.designer : '', note: row.note || '', size: row.size_note || '' };
 }
 
 function publicCatalogue(db, { q = '', offset = 0, limit = 12 } = {}) {
@@ -200,7 +207,7 @@ function publicCatalogue(db, { q = '', offset = 0, limit = 12 } = {}) {
   const off = clampInt(offset, 0, 100000, 0);
   const where = `k.enabled = 1 AND (coalesce(k.title, m.fileName) LIKE ? ESCAPE '\\' OR coalesce(m.designer,'') LIKE ? ESCAPE '\\')`;
   const total = db.prepare(`SELECT COUNT(*) AS n FROM kiosk_items k JOIN models m ON m.id = k.model_id WHERE ${where}`).get(like, like).n;
-  const rows = db.prepare(`SELECT k.model_id, k.title, k.note, m.fileName, m.designer
+  const rows = db.prepare(`SELECT k.model_id, k.title, k.note, k.size_note, m.fileName, m.designer
     FROM kiosk_items k JOIN models m ON m.id = k.model_id WHERE ${where}
     ORDER BY lower(coalesce(k.title, m.fileName)) LIMIT ? OFFSET ?`).all(like, like, lim, off);
   return { total, items: rows.map(publicRow) };
@@ -362,6 +369,40 @@ function purgeOld(db, retentionDays, now = new Date()) {
   return db.prepare('DELETE FROM quote_requests WHERE created_at < ?').run(cutoff).changes;
 }
 
+// ---------- emailing the customer a copy ----------
+// Opt-in on both sides: you need to have configured a mailer, and the customer ticks a box. The email goes to the
+// address they typed, once, and contains only things the server already knows (reference, item, price, dates).
+// Nothing the customer typed freely (name, message) is ever put in it, so the form can't be used to send
+// someone else's words to a stranger. A daily cap stops it being turned into a mail cannon.
+function copyText(request, settings) {
+  const lines = [
+    'Thank you. We have your quote request.',
+    '',
+    `Reference: ${request.reference}`,
+    `Item: ${request.quantity} x ${request.item_name}`
+  ];
+  if (request.price_shown) {
+    lines.push(`Estimated price: ${request.currency}${Number(request.total_price).toFixed(2)}`);
+    lines.push('This is an estimate. We confirm the final price when we reply.');
+  } else lines.push('We will work out the price and email it to you.');
+  lines.push(`Valid until: ${String(request.valid_until).slice(0, 10)}`, '', 'We will reply by email. You do not pay anything yet.', '', `${settings.title}`);
+  return lines.join('\n');
+}
+
+function createDailyCap(limit, now = Date.now) {
+  let day = ''; let n = 0;
+  return () => { const d = new Date(now()).toISOString().slice(0, 10); if (d !== day) { day = d; n = 0; } if (n >= limit) return false; n += 1; return true; };
+}
+
+async function sendCopy(ctx, request, settings) {
+  const set = (status) => { try { ctx.getDb().prepare('UPDATE quote_requests SET mail_status = ? WHERE id = ?').run(status, request.id); } catch (_) { /* db closing */ } };
+  if (ctx.mailAllowed && !ctx.mailAllowed()) { set('capped'); return; }
+  try {
+    const r = await ctx.mailer.send({ to: request.customer_email, subject: `Your quote request ${request.reference}`, text: copyText(request, settings) });
+    set(r && r.ok ? 'sent' : 'failed');
+  } catch (_) { set('failed'); }
+}
+
 // ---------- notifying you ----------
 function webhookPayload(request, settings) {
   const price = request.price_shown
@@ -457,7 +498,7 @@ function registerRoutes(app, ctx) {
     const s = settings();
     const ready = pricingReady(loadFarmConfig(ctx.getSetting));
     const cfg = loadFarmConfig(ctx.getSetting);
-    res.json({ title: s.title, intro: s.intro, privacy: s.privacy, showPrice: s.showPrice, idleSeconds: s.idleSeconds, validityDays: s.validityDays, ready: ready.ok, currency: cfg && cfg.currency ? String(cfg.currency).slice(0, 4) : '£' });
+    res.json({ title: s.title, intro: s.intro, privacy: s.privacy, showPrice: s.showPrice, idleSeconds: s.idleSeconds, validityDays: s.validityDays, ready: ready.ok, mailCopy: !!ctx.mailer, currency: cfg && cfg.currency ? String(cfg.currency).slice(0, 4) : '£' });
   });
 
   api.get('/catalogue', (req, res) => {
@@ -502,7 +543,8 @@ function registerRoutes(app, ctx) {
     let request;
     try { request = createRequest(ctx.getDb(), { snapshot, email: v.email, name: v.name, message: v.message, now: ctx.now ? new Date(ctx.now()) : new Date() }); }
     catch (e) { res.status(500).json({ error: 'Sorry, that did not go through. Please ask staff.' }); return; }
-    res.json({ reference: request.reference, validUntil: request.valid_until });
+    res.json({ reference: request.reference, validUntil: request.valid_until, copyRequested: !!(ctx.mailer && body.copy === true) });
+    if (ctx.mailer && body.copy === true) sendCopy(ctx, request, s);
     // Tell you afterwards, so a slow webhook never keeps the customer waiting.
     try { if (ctx.onNewRequest) ctx.onNewRequest(request); } catch (_) { /* a failing hook must not matter */ }
     if (s.webhookUrl) {
@@ -557,5 +599,5 @@ module.exports = {
   saveItem, removeItem, listItemsAdmin, searchModels, publicCatalogue, offeredItem, thumbnailFor,
   computeQuote, createQuoteStore, createRateLimiter, validateSubmission, newReference,
   createRequest, listRequests, countNew, updateRequest, deleteRequest, purgeOld,
-  webhookPayload, sendWebhook, registerRoutes, registerAdminIpc
+  webhookPayload, sendWebhook, copyText, createDailyCap, registerRoutes, registerAdminIpc
 };

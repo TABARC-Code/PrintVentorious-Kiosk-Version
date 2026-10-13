@@ -12,7 +12,7 @@ const { createApp, openDb, seedDemo } = require('../server');
 
 (async () => {
   const db = openDb(':memory:'); seedDemo(db);
-  const server = await new Promise((r) => { const s = createApp({ db }).listen(0, '127.0.0.1', () => r(s)); });
+  const server = await new Promise((r) => { const s = createApp({ db, mailer: { send: async () => ({ ok: true }) } }).listen(0, '127.0.0.1', () => r(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
   const launch = { args: ['--no-sandbox'] };
   if (process.env.CHROMIUM_PATH) launch.executablePath = process.env.CHROMIUM_PATH;

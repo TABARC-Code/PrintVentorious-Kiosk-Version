@@ -80,3 +80,7 @@ main p, .k-box p, .k-opts p { max-width: 38rem; text-align: left; }
 .k-next h3 { margin: 0 0 8px; font-size: 1.15rem; }
 .k-next ol { margin: 0; padding-left: 1.3em; }
 .k-next li { margin: 4px 0; }
+.k-size { display: block; margin-top: 2px; }
+.k-sizeline { color: var(--text); }
+.k-check { display: flex; align-items: center; gap: 12px; min-height: 52px; margin: 14px 0; font-weight: 600; cursor: pointer; }
+.k-check input { width: 28px; height: 28px; min-height: 0; padding: 0; accent-color: var(--accent); flex: none; }

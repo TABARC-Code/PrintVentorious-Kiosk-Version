@@ -29,13 +29,13 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
   const add = (n, d) => db.prepare('INSERT INTO models (fileName, designer, license, thumbnail) VALUES (?, ?, ?, ?)').run(n, d, 'CC-BY', png).lastInsertRowid;
   const a = add('Phone stand.stl', 'Acme'); const b = add('Dragon bust.stl', 'Zed'); add('Not offered.stl', 'X');
-  K.saveItem(db, { modelId: a, printHours: 3, grams: 50, unitsPerPlate: 1, filamentId: 1, note: 'Fits most phones' });
+  K.saveItem(db, { modelId: a, printHours: 3, grams: 50, unitsPerPlate: 1, filamentId: 1, note: 'Fits most phones', sizeNote: 'About 10 x 8 x 9 cm' });
   K.saveItem(db, { modelId: b, printHours: 6, grams: 120, unitsPerPlate: 1, filamentId: 1 });
 
   const store = { [K.SETTINGS_KEY]: JSON.stringify({ enabled: true, idleSeconds: 20 }), farmCostConfig: JSON.stringify(FARM) };
   const app = express();
-  const created = [];
-  K.registerRoutes(app, { getDb: () => db, getSetting: (k) => store[k] ?? null, publicDir: require('path').join(__dirname, '..', 'public'), onNewRequest: (r) => created.push(r) });
+  const created = []; const mails = [];
+  K.registerRoutes(app, { getDb: () => db, getSetting: (k) => store[k] ?? null, publicDir: require('path').join(__dirname, '..', 'public'), onNewRequest: (r) => created.push(r), mailer: { send: async (m) => { mails.push(m); return { ok: true }; } } });
   const server = await new Promise((resolve) => { const s = http.createServer(app); s.listen(0, '127.0.0.1', () => resolve(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
 
@@ -57,6 +57,10 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
     assert.ok(!(await page.textContent('body')).includes('Not offered'));
     assert.ok(await page.evaluate(() => [...document.images].filter((i) => i.closest('.k-card')).every((i) => i.complete && i.naturalWidth > 0)), 'thumbnails load');
 
+    // size hint on the card, and the email-copy box is only there because a mailer is configured
+    assert.ok((await page.textContent('.k-card:has-text("Phone stand")')).includes('About 10 x 8 x 9 cm'), 'size shown on the card');
+    assert.ok(!(await page.textContent('.k-card:has-text("Dragon")')).includes('About'), 'no size note, no size line');
+
     // search
     await page.fill('#k-q', 'dragon'); await page.click('.k-search button[type="submit"]');
     await page.waitForFunction(() => document.querySelectorAll('.k-card').length === 1);
@@ -66,6 +70,7 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
     // pick, choose a quantity, get the quote
     await page.click('.k-card:has-text("Phone stand")');
     await page.waitForSelector('#k-qty');
+    assert.ok((await page.textContent('.k-sizeline')).startsWith('How big: About 10 x 8 x 9 cm'), 'size shown on the item screen');
     assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'k-screen-title', 'focus moves to the new screen heading');
     await page.click('button[aria-label="One more"]');
     assert.strictEqual(await page.inputValue('#k-qty'), '2');
@@ -81,10 +86,14 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
     await page.fill('#k-email', 'not-an-email'); await page.click('text=Send to us');
     await page.waitForSelector('.k-error:not(:empty)');
     assert.ok((await page.textContent('.k-error')).includes('valid email'));
+    assert.strictEqual(await page.isChecked('#k-copy'), true, 'the copy box is on by default');
     await page.fill('#k-email', 'sam@example.com'); await page.fill('#k-name', 'Sam'); await page.fill('#k-msg', 'Red please');
     await page.click('text=Send to us');
     await page.waitForSelector('.k-ref');
     const ref = await page.textContent('.k-ref');
+    assert.ok((await page.textContent('main')).includes('sending a copy'), 'the done screen says a copy is on its way');
+    for (let i = 0; i < 50 && !mails.length; i++) await new Promise((r) => setTimeout(r, 20));
+    assert.strictEqual(mails.length, 1); assert.strictEqual(mails[0].to, 'sam@example.com'); assert.ok(mails[0].text.includes(ref));
     assert.ok(/^Q-[A-Z2-9]{6}$/.test(ref), ref);
     const row = db.prepare('SELECT * FROM quote_requests WHERE reference = ?').get(ref);
     assert.ok(row && row.customer_email === 'sam@example.com' && row.quantity === 2 && row.total_price === expected.total, 'the request reached the back end with the right numbers');

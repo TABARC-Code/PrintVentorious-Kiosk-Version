@@ -10,7 +10,7 @@
   'use strict';
 
   const main = document.getElementById('k-main');
-  let config = { title: 'Get a print quote', intro: '', privacy: '', showPrice: true, idleSeconds: 120, ready: true, currency: '£' };
+  let config = { title: 'Get a print quote', intro: '', privacy: '', showPrice: true, idleSeconds: 120, ready: true, mailCopy: false, currency: '£' };
   let state = null;          // what the customer is doing right now; wiped by reset()
   let lastTouch = Date.now();
   let idleTimer = null;
@@ -91,7 +91,7 @@
   function card(it) {
     return el('button', { type: 'button', class: 'k-card', onclick: () => itemScreen(it) },
       el('img', { src: `/api/kiosk/thumb/${it.id}`, alt: '', loading: 'lazy' }),
-      el('span', { class: 'k-card-body' }, el('strong', { text: it.name }), it.designer ? el('small', { text: `by ${it.designer}` }) : null, el('span', { class: 'k-pick', text: 'Choose this' })));
+      el('span', { class: 'k-card-body' }, el('strong', { text: it.name }), it.designer ? el('small', { text: `by ${it.designer}` }) : null, it.size ? el('small', { class: 'k-size', text: it.size }) : null, el('span', { class: 'k-pick', text: 'Choose this' })));
   }
 
   function itemScreen(it) {
@@ -111,6 +111,7 @@
         el('img', { src: `/api/kiosk/thumb/${it.id}`, alt: it.name }),
         el('div', {},
           it.designer ? el('p', { text: `Designed by ${it.designer}` }) : null,
+          it.size ? el('p', { class: 'k-sizeline' }, el('strong', { text: 'How big: ' }), it.size) : null,
           it.note ? el('p', { text: it.note }) : null,
           el('label', { for: 'k-qty', text: 'How many would you like?' }),
           el('div', { class: 'k-qty' }, el('button', { type: 'button', 'aria-label': 'One fewer', onclick: () => setQty(qty - 1) }, '-'), input, el('button', { type: 'button', 'aria-label': 'One more', onclick: () => setQty(qty + 1) }, '+')),
@@ -123,12 +124,13 @@
     const email = el('input', { type: 'email', id: 'k-email', autocomplete: 'off', required: true, maxlength: '254', 'aria-describedby': 'k-privacy' });
     const name = el('input', { type: 'text', id: 'k-name', autocomplete: 'off', maxlength: '80' });
     const message = el('textarea', { id: 'k-msg', maxlength: '500', autocomplete: 'off', placeholder: 'Colour, size, when you need it...' });
+    const copy = config.mailCopy ? el('label', { class: 'k-check', for: 'k-copy' }, el('input', { type: 'checkbox', id: 'k-copy', checked: true }), el('span', { text: 'Email me a copy of this quote' })) : null;
     const trap = el('input', { type: 'text', class: 'k-hp', name: 'website', tabindex: '-1', autocomplete: 'off', 'aria-hidden': 'true' });
     const send = el('button', { type: 'submit', class: 'k-btn' }, 'Send to us');
     const until = new Date(q.validUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     const form = el('form', { novalidate: true, onsubmit: async (e) => {
       e.preventDefault(); error.textContent = ''; send.disabled = true;
-      try { doneScreen(await api('/submit', { quoteId: q.quoteId, email: email.value, name: name.value, message: message.value, website: trap.value })); }
+      try { doneScreen(await api('/submit', { quoteId: q.quoteId, email: email.value, name: name.value, message: message.value, website: trap.value, copy: !!(copy && copy.querySelector('input').checked) })); }
       catch (err) {
         error.textContent = err.message; send.disabled = false;
         if (err.status === 410) send.replaceWith(el('button', { type: 'button', class: 'k-btn', onclick: () => itemScreen(it) }, 'Get a new quote'));
@@ -138,7 +140,7 @@
       el('label', { for: 'k-email', text: 'Your email address' }), email,
       el('label', { for: 'k-name', text: 'Your name (optional)' }), name,
       el('label', { for: 'k-msg', text: 'Anything we should know? (optional)' }), message,
-      trap, error,
+      copy, trap, error,
       el('p', { id: 'k-privacy', text: config.privacy }),
       el('div', { class: 'k-actions' }, send, el('button', { type: 'button', class: 'k-btn k-secondary', onclick: () => itemScreen(it) }, 'Go back'), el('button', { type: 'button', class: 'k-btn k-secondary', onclick: () => reset() }, 'Start again')));
 
@@ -158,7 +160,7 @@
       el('div', { class: 'k-box' },
         el('p', { text: 'Your reference number is:' }),
         el('div', { class: 'k-ref', text: r.reference }),
-        el('p', { text: 'Keep this number. We will email you.' })),
+        el('p', { text: 'Keep this number. We will email you.' }), r.copyRequested ? el('p', { text: 'We are also sending a copy of your quote to your email. It can take a few minutes.' }) : null),
       el('div', { class: 'k-actions' }, el('button', { type: 'button', class: 'k-btn', onclick: () => reset() }, 'Start again')),
       el('p', { text: 'This screen will clear itself shortly.' }));
     resetTimer = setTimeout(() => reset(true), 45000);
