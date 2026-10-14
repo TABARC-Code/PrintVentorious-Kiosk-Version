@@ -147,6 +147,10 @@ function ensureSchema(db) {
   const addColumn = (table, col, ddl) => { if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col)) db.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`).run(); };
   addColumn('kiosk_items', 'size_note', 'TEXT');
   addColumn('quote_requests', 'mail_status', "TEXT NOT NULL DEFAULT 'none'");
+  addColumn('quote_requests', 'quote_token_hash', 'TEXT');
+  addColumn('quote_requests', 'retry_until', 'TEXT');
+  addColumn('quote_requests', 'copy_requested', 'INTEGER NOT NULL DEFAULT 0');
+  db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_quote_requests_token ON quote_requests(quote_token_hash)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS idx_quote_requests_status ON quote_requests(status, created_at)').run();
 }
 
@@ -287,6 +291,10 @@ function createQuoteStore({ ttlMs = 60 * 60 * 1000, max = 2000, now = Date.now }
       return id;
     },
     /** Single use: a quote can become one request, not a hundred. */
+    peek(id) {
+      sweep();
+      return typeof id === 'string' ? map.get(id)?.snapshot || null : null;
+    },
     take(id) {
       sweep();
       const entry = typeof id === 'string' ? map.get(id) : null;
@@ -332,20 +340,21 @@ function validateSubmission(body) {
   };
 }
 
-function createRequest(db, { snapshot, email, name, message, now = new Date() }) {
+function createRequest(db, { snapshot, email, name, message, tokenHash = null, copyRequested = false, now = new Date() }) {
   const created = now.toISOString();
-  const validUntil = new Date(now.getTime() + snapshot.validityDays * 86400000).toISOString();
+  const validUntil = snapshot.validUntil || new Date(now.getTime() + snapshot.validityDays * 86400000).toISOString();
   for (let attempt = 0; attempt < 5; attempt++) {
     const reference = newReference();
     try {
       db.prepare(`INSERT INTO quote_requests (reference, created_at, model_id, item_name, quantity, unit_price, total_price, currency, valid_until,
-        customer_email, customer_name, message, internal_cost, internal_profit, price_shown)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        customer_email, customer_name, message, internal_cost, internal_profit, price_shown, quote_token_hash, retry_until, copy_requested)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         reference, created, snapshot.itemId, snapshot.itemName, snapshot.quantity, snapshot.unitPrice, snapshot.total, snapshot.currency,
-        validUntil, email, name || null, message || null, snapshot.internal.cost, snapshot.internal.profit, snapshot.showPrice ? 1 : 0);
+        validUntil, email, name || null, message || null, snapshot.internal.cost, snapshot.internal.profit, snapshot.showPrice ? 1 : 0,
+        tokenHash, snapshot.retryUntil || null, copyRequested ? 1 : 0);
       return db.prepare('SELECT * FROM quote_requests WHERE reference = ?').get(reference);
     } catch (e) {
-      if (!/UNIQUE/.test(String(e.message))) throw e;   // a clash on the reference: try another
+      if (!/UNIQUE constraint failed: quote_requests.reference/.test(String(e.message))) throw e;
     }
   }
   throw new Error('Could not create a reference');
@@ -523,7 +532,8 @@ function registerRoutes(app, ctx) {
     const q = computeQuote({ farmConfig: loadFarmConfig(ctx.getSetting), item, quantity: req.body && req.body.quantity, settings: s });
     if (!q.ok) { res.status(422).json({ error: q.error }); return; }
     const validUntil = new Date((ctx.now ? ctx.now() : Date.now()) + s.validityDays * 86400000).toISOString();
-    const quoteId = quotes.put({ itemId: item.model_id, itemName: item.title || stripExt(item.fileName), quantity: q.quantity, unitPrice: q.unitPrice, total: q.total, currency: q.currency, internal: q.internal, showPrice: s.showPrice, validityDays: s.validityDays });
+    const retryUntil = new Date((ctx.now ? ctx.now() : Date.now()) + 60 * 60 * 1000).toISOString();
+    const quoteId = quotes.put({ itemId: item.model_id, itemName: item.title || stripExt(item.fileName), quantity: q.quantity, unitPrice: q.unitPrice, total: q.total, currency: q.currency, internal: q.internal, showPrice: s.showPrice, validityDays: s.validityDays, validUntil, retryUntil });
     const out = { quoteId, name: item.title || stripExt(item.fileName), quantity: q.quantity, validUntil, showPrice: s.showPrice };
     if (s.showPrice) { out.unitPrice = q.unitPrice; out.total = q.total; out.currency = q.currency; }
     res.json(out);
@@ -537,14 +547,29 @@ function registerRoutes(app, ctx) {
     if (typeof body.website === 'string' && body.website.trim() !== '') { res.json({ reference: newReference(), validUntil: new Date().toISOString() }); return; }
     const v = validateSubmission(body);
     if (!v.ok) { res.status(422).json({ error: v.error }); return; }
-    const snapshot = quotes.take(body.quoteId);
-    if (!snapshot) { res.status(410).json({ error: 'That quote has expired. Please get a new one.' }); return; }
+    if (typeof body.quoteId !== 'string' || !/^[a-f0-9]{32}$/.test(body.quoteId)) { res.status(410).json({ error: 'That quote has expired. Please get a new one.' }); return; }
+    const tokenHash = crypto.createHash('sha256').update(body.quoteId).digest('hex');
+    const now = ctx.now ? new Date(ctx.now()) : new Date();
     const s = settings();
-    let request;
-    try { request = createRequest(ctx.getDb(), { snapshot, email: v.email, name: v.name, message: v.message, now: ctx.now ? new Date(ctx.now()) : new Date() }); }
+    let request, created = false;
+    try {
+      const db = ctx.getDb();
+      request = db.transaction(() => {
+        const existing = db.prepare('SELECT * FROM quote_requests WHERE quote_token_hash = ?').get(tokenHash);
+        if (existing) return existing.customer_email === v.email && existing.retry_until > now.toISOString() ? existing : null;
+        const snapshot = quotes.peek(body.quoteId);
+        if (!snapshot) return null;
+        const row = createRequest(db, { snapshot, email: v.email, name: v.name, message: v.message, tokenHash, copyRequested: !!(ctx.mailer && body.copy === true), now });
+        created = true;
+        return row;
+      })();
+    }
     catch (e) { res.status(500).json({ error: 'Sorry, that did not go through. Please ask staff.' }); return; }
-    res.json({ reference: request.reference, validUntil: request.valid_until, copyRequested: !!(ctx.mailer && body.copy === true) });
-    if (ctx.mailer && body.copy === true) sendCopy(ctx, request, s);
+    if (!request) { res.status(410).json({ error: 'That quote has expired. Please get a new one.' }); return; }
+    quotes.take(body.quoteId); // only consume after the transaction commits
+    res.json({ reference: request.reference, validUntil: request.valid_until, copyRequested: !!request.copy_requested });
+    if (!created) return; // a retry must not notify staff or email the customer again
+    if (request.copy_requested) sendCopy(ctx, request, s);
     // Tell you afterwards, so a slow webhook never keeps the customer waiting.
     try { if (ctx.onNewRequest) ctx.onNewRequest(request); } catch (_) { /* a failing hook must not matter */ }
     if (s.webhookUrl) {
@@ -601,3 +626,4 @@ module.exports = {
   createRequest, listRequests, countNew, updateRequest, deleteRequest, purgeOld,
   webhookPayload, sendWebhook, copyText, createDailyCap, registerRoutes, registerAdminIpc
 };
+

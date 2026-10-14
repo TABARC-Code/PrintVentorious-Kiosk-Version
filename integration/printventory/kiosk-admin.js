@@ -153,9 +153,10 @@
     const filament = el('select', {}, el('option', { value: '', text: 'Average of my priced filaments' }), ...filaments.map((f) => el('option', { value: String(f.id), text: [f.vendor, f.name, f.material].filter(Boolean).join(' ') })));
     filament.value = existing && existing.filament_id != null ? String(existing.filament_id) : '';
     const note = el('input', { type: 'text', maxlength: '300', value: existing && existing.note || '', placeholder: 'Optional: shown under the name, e.g. "Hand painted"' });
+    const sizeNote = el('input', { type: 'text', maxlength: '60', value: existing && existing.size_note || '', placeholder: 'Optional: e.g. 12 x 8 x 5 cm' });
     const on = el('input', { type: 'checkbox' }); on.checked = existing ? !!existing.enabled : true;
     const preview = el('p', { class: 'ka-preview', role: 'status' });
-    const read = () => ({ modelId, title: title.value, printHours: hours.value, grams: grams.value, unitsPerPlate: per.value, filamentId: filament.value, note: note.value, enabled: on.checked });
+    const read = () => ({ modelId, title: title.value, printHours: hours.value, grams: grams.value, unitsPerPlate: per.value, filamentId: filament.value, note: note.value, sizeNote: sizeNote.value, enabled: on.checked });
     const updatePreview = async () => {
       const r = read();
       if (!(Number(r.printHours) > 0 && Number(r.grams) > 0)) { preview.textContent = ''; return; }
@@ -173,6 +174,7 @@
       el('div', { class: 'ka-two' }, field('Print time per plate (hours)', hours, 'From your slicer'), field('Filament per plate (grams)', grams)),
       el('div', { class: 'ka-two' }, field('Items per plate', per), field('Filament', filament)),
       field('Short note', note),
+      field('Size shown to customers', sizeNote, 'Include units, such as cm or mm.'),
       el('label', { class: 'ka-check' }, on, ' Show this to customers'),
       preview,
       el('div', { class: 'ka-row' },
@@ -268,3 +270,4 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
+

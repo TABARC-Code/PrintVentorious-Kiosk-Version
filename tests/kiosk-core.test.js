@@ -233,7 +233,10 @@ function call(port, { method = 'GET', path: p, body, headers = {} }) {
     for (let i = 0; i < 40 && !hooks.length; i++) await new Promise((r) => setTimeout(r, 25));
     assert.strictEqual(hooks.length, 1); assert.ok(hooks[0].content.includes(ok.json.reference)); assert.strictEqual(hooks[0].email, 'sam@example.com');
     const again = await call(port, { method: 'POST', path: '/api/kiosk/submit', body: { quoteId: q.quoteId, email: 'sam@example.com' } });
-    assert.strictEqual(again.status, 410);                                  // single use
+    assert.strictEqual(again.status, 200);
+    assert.strictEqual(again.json.reference, ok.json.reference);
+    assert.strictEqual(created.length, 1);
+    assert.strictEqual(hooks.length, 1);
     server.close(); hit.close();
   });
 
@@ -349,3 +352,4 @@ function call(port, { method = 'GET', path: p, body, headers = {} }) {
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();
+

@@ -16,6 +16,7 @@
   let idleTimer = null;
   let resetTimer = null;
   let dirty = false;
+  let screenGeneration = 0;
 
   const $ = (id) => document.getElementById(id);
   function el(tag, attrs, ...kids) {
@@ -48,6 +49,7 @@
   }
 
   function show(heading, step, ...content) {
+    screenGeneration += 1;
     main.textContent = '';
     const h = el('h2', { id: 'k-screen-title', text: heading, tabindex: '-1' });
     main.append(steps(step), h, ...content);
@@ -73,18 +75,29 @@
     const more = el('div', { class: 'k-more' });
     const status = el('p', { id: 'k-status', 'aria-live': 'polite' });
     show(config.title, 1, config.intro ? el('p', { text: config.intro }) : null, config.ready ? null : el('p', { class: 'k-error', text: 'Pricing is not set up yet. You can look around, but please ask staff for a quote.' }), form, status, grid, more);
+    const generation = screenGeneration;
+    const session = state;
+    let searchGeneration = 0;
+    let loading = false;
     await loadItems(true);
 
     async function loadItems(fresh) {
+      if (!fresh && loading) return;
+      const search = fresh ? ++searchGeneration : searchGeneration;
+      loading = true;
       try {
-        const r = await api(`/catalogue?q=${encodeURIComponent(state.q)}&offset=${state.offset}&limit=12`);
+        const r = await api(`/catalogue?q=${encodeURIComponent(session.q)}&offset=${session.offset}&limit=12`);
+        if (generation !== screenGeneration || search !== searchGeneration) return;
         if (fresh) { grid.textContent = ''; state.items = []; }
         state.items.push(...r.items); state.total = r.total; state.offset += r.items.length;
         r.items.forEach((it) => grid.append(card(it)));
         status.textContent = state.total === 0 ? (state.q ? 'Nothing matches that search.' : 'There is nothing in the catalogue yet.') : `${state.total} item${state.total === 1 ? '' : 's'}`;
         more.textContent = '';
         if (state.offset < state.total) more.append(el('button', { type: 'button', class: 'k-btn k-secondary', onclick: () => loadItems(false) }, 'Show more'));
-      } catch (e) { status.textContent = ''; grid.before(el('p', { class: 'k-error', role: 'alert', text: e.message })); }
+      } catch (e) {
+        if (generation !== screenGeneration || search !== searchGeneration) return;
+        status.textContent = ''; grid.before(el('p', { class: 'k-error', role: 'alert', text: e.message }));
+      } finally { if (search === searchGeneration) loading = false; }
     }
   }
 
@@ -103,8 +116,12 @@
     input.addEventListener('input', () => { const n = Math.round(Number(input.value)); if (n >= 1 && n <= 100) qty = n; });
     const quoteBtn = el('button', { type: 'button', class: 'k-btn', disabled: !config.ready, onclick: async () => {
       error.textContent = ''; setQty(Number(input.value)); quoteBtn.disabled = true;
-      try { quoteScreen(it, await api('/quote', { itemId: it.id, quantity: qty })); }
-      catch (e) { error.textContent = e.message; quoteBtn.disabled = !config.ready; }
+      const generation = screenGeneration;
+      try {
+        const q = await api('/quote', { itemId: it.id, quantity: qty });
+        if (generation === screenGeneration) quoteScreen(it, q);
+      }
+      catch (e) { if (generation === screenGeneration) { error.textContent = e.message; quoteBtn.disabled = !config.ready; } }
     } }, 'See my price');
     show(it.name, 1,
       el('div', { class: 'k-item' },
@@ -130,8 +147,13 @@
     const until = new Date(q.validUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     const form = el('form', { novalidate: true, onsubmit: async (e) => {
       e.preventDefault(); error.textContent = ''; send.disabled = true;
-      try { doneScreen(await api('/submit', { quoteId: q.quoteId, email: email.value, name: name.value, message: message.value, website: trap.value, copy: !!(copy && copy.querySelector('input').checked) })); }
+      const generation = screenGeneration;
+      try {
+        const result = await api('/submit', { quoteId: q.quoteId, email: email.value, name: name.value, message: message.value, website: trap.value, copy: !!(copy && copy.querySelector('input').checked) });
+        if (generation === screenGeneration) doneScreen(result);
+      }
       catch (err) {
+        if (generation !== screenGeneration) return;
         error.textContent = err.message; send.disabled = false;
         if (err.status === 410) send.replaceWith(el('button', { type: 'button', class: 'k-btn', onclick: () => itemScreen(it) }, 'Get a new quote'));
         else email.focus();
@@ -239,3 +261,4 @@
 
   start();
 })();
+
