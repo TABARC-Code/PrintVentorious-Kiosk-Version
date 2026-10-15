@@ -18,8 +18,16 @@ const ONE_ADDRESS = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,
 
 function createMailer({ url, from, replyTo, transport } = {}) {
   if (!from || (!url && !transport)) return null;
+  let connection;
+  if (!transport) {
+    connection = new URL(url);
+    if (!['smtp:', 'smtps:'].includes(connection.protocol)) throw new Error('Use an smtp:// or smtps:// mail server address.');
+    for (const [key, value] of Object.entries({ requireTLS: true, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 20000 })) {
+      connection.searchParams.set(key, String(value));
+    }
+  }
   const nodemailer = require('nodemailer');
-  const t = nodemailer.createTransport(transport || url);
+  const t = nodemailer.createTransport(transport || connection.toString());
   return {
     async send({ to, subject, text }) {
       if (!ONE_ADDRESS.test(String(to))) return { ok: false, error: 'Not a single plain email address.' };
@@ -38,3 +46,4 @@ function mailerFromEnv(env = process.env) {
 }
 
 module.exports = { createMailer, mailerFromEnv };
+

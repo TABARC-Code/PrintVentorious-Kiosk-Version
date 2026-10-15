@@ -104,6 +104,7 @@ function pricingReady(farmConfigRaw) {
   const active = Object.values(c.printers).filter((p) => p.active);
   if (!active.length) problems.push('No printer is marked in service in the Farm Cost Calculator.');
   else if (!active.some((p) => p.price > 0)) problems.push('None of your printers has a purchase price set, so wear and tear would be quoted as zero.');
+  else if (active.some((p) => p.price <= 0)) problems.push('Every printer in service needs a purchase price before the kiosk can use the farm average. Set the missing prices or mark those printers out of service.');
   if (!Object.values(c.filaments).some((f) => f.spoolPrice > 0)) problems.push('No filament has a spool price set.');
   return { ok: problems.length === 0, problems };
 }
@@ -241,8 +242,8 @@ function computeQuote({ farmConfig, item, quantity, settings }) {
   const ready = pricingReady(farmConfig);
   if (!ready.ok) return { ok: false, error: 'Pricing is not set up yet. Please ask staff for a quote.' };
   // Not clamped: -3 or 0 or 5000 is a mistake to point out, not something to quietly turn into 1 or 100.
-  const qty = Math.round(Number(quantity));
-  if (!Number.isFinite(qty) || qty < 1 || qty > 100) return { ok: false, error: 'Choose a quantity between 1 and 100.' };
+  const qty = typeof quantity === 'number' || typeof quantity === 'string' ? Number(quantity) : NaN;
+  if (!Number.isInteger(qty) || qty < 1 || qty > 100) return { ok: false, error: 'Choose a whole number between 1 and 100.' };
   const config = FarmCost.normaliseConfig(farmConfig);
   if (item.filament_id != null && !(config.filaments[item.filament_id] && config.filaments[item.filament_id].spoolPrice > 0)) {
     return { ok: false, error: 'This item cannot be priced right now. Please ask staff.' };
@@ -560,6 +561,10 @@ function registerRoutes(app, ctx) {
         const snapshot = quotes.peek(body.quoteId);
         if (!snapshot) return null;
         const row = createRequest(db, { snapshot, email: v.email, name: v.name, message: v.message, tokenHash, copyRequested: !!(ctx.mailer && body.copy === true), now });
+        if (row.copy_requested) {
+          db.prepare("UPDATE quote_requests SET mail_status = 'pending' WHERE id = ?").run(row.id);
+          row.mail_status = 'pending';
+        }
         created = true;
         return row;
       })();

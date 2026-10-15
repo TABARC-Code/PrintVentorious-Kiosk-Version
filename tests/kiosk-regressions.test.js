@@ -91,6 +91,12 @@ async function client() {
   assert.equal(ids['k-screen-title'].textContent, 'Get a print quote');
   assert(!find(ids['k-main'], n => n.textContent === 'Q-PREVIOUS'));
   context.hooks.itemScreen(item);
+  ids['k-qty'].value = '1.5';
+  const invalidButton = find(ids['k-main'], n => n.tag === 'button' && n.children.some(c => c.textContent === 'See my price'));
+  await invalidButton.listeners.click();
+  assert.equal(pending.length, 0, 'fractional quantities must not reach the server');
+  assert(find(ids['k-main'], n => n.textContent.includes('whole number')));
+  ids['k-qty'].value = '1';
   const button = find(ids['k-main'], n => n.tag === 'button' && n.children.some(c => c.textContent === 'See my price'));
   const quoting = button.listeners.click(); const request = pending.shift();
   context.hooks.reset(); respond(pending.shift(), { items: [], total: 0 }); await flush();
@@ -110,7 +116,7 @@ async function adminSize() {
   const document = { readyState: 'loading', addEventListener() {}, getElementById: id => ids[id] || (ids[id] = new Element('div', ids)), createElement: tag => new Element(tag, ids), createTextNode: text => ({ nodeType: 3, textContent: text }) };
   const context = { document, window: { electron: { saveKioskItem: async value => { saved.push(value); K.saveItem(db, value); }, previewKioskQuote: async () => ({ ok: false, error: 'preview' }) } }, setTimeout: () => 0, clearTimeout() {} };
   vm.createContext(context);
-  const code = fs.readFileSync(require.resolve('../integration/printventory/kiosk-admin.js'), 'utf8').replace("  if (document.readyState === 'loading')", '  globalThis.addForm = addForm;\n  if (document.readyState === \'loading\')');
+  const code = fs.readFileSync(require.resolve('../integration/printventory/kiosk-admin.js'), 'utf8').replace("  if (document.readyState === 'loading')", '  globalThis.addForm = addForm; globalThis.requestCard = requestCard;\n  if (document.readyState === \'loading\')');
   vm.runInContext(code, context);
   const pane = new Element('div', ids);
   context.addForm(pane, K.listItemsAdmin(db)[0]);
@@ -121,6 +127,22 @@ async function adminSize() {
   assert.equal(saved[0].sizeNote, '12 cm');
   input.value = '15 x 8 cm'; await save.listeners.click();
   assert.equal(K.publicCatalogue(db).items[0].size, '15 x 8 cm');
-  db.close(); console.log('ok size editor: loads, preserves and updates customer size label');
+  const row = { reference: 'Q-TEST', quantity: 1, customer_email: 'sam@example.com' };
+  for (const [status, fragment] of [['pending', 'waiting to send'], ['sent', 'accepted by the mail server'], ['failed', 'failed to send'], ['capped', 'daily limit']]) {
+    const card = context.requestCard({ ...row, mail_status: status });
+    assert(find(card, n => n.textContent.includes(fragment)), status);
+  }
+  db.close(); console.log('ok admin: size labels round-trip; email delivery status is visible');
 }
-(async () => { await submissions(); await client(); await adminSize(); })().catch(e => { console.error(e); process.exitCode = 1; });
+function pricing() {
+  const farm = { printers: { 1: { price: 400 } }, filaments: { 1: { spoolPrice: 20 } } };
+  const item = { print_hours: 2, grams: 30, units_per_plate: 1 };
+  for (const quantity of [1.5, 0, 101, true, [2], '2.5', '']) {
+    assert.equal(K.computeQuote({ farmConfig: farm, item, quantity, settings: K.DEFAULT_SETTINGS }).ok, false);
+  }
+  for (const quantity of [1, 100, '2']) assert.equal(K.computeQuote({ farmConfig: farm, item, quantity, settings: K.DEFAULT_SETTINGS }).ok, true);
+  assert.equal(K.pricingReady({ ...farm, printers: { ...farm.printers, 2: { price: 0 } } }).ok, false);
+  assert.equal(K.pricingReady({ ...farm, printers: { ...farm.printers, 2: { price: 0, active: false } } }).ok, true);
+  console.log('ok pricing: whole quantities only; unpriced active printers block quotes');
+}
+(async () => { pricing(); await submissions(); await client(); await adminSize(); })().catch(e => { console.error(e); process.exitCode = 1; });

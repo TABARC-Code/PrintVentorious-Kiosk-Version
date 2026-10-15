@@ -115,7 +115,14 @@
     const setQty = (n) => { qty = Math.max(1, Math.min(100, Math.round(n) || 1)); input.value = String(qty); };
     input.addEventListener('input', () => { const n = Math.round(Number(input.value)); if (n >= 1 && n <= 100) qty = n; });
     const quoteBtn = el('button', { type: 'button', class: 'k-btn', disabled: !config.ready, onclick: async () => {
-      error.textContent = ''; setQty(Number(input.value)); quoteBtn.disabled = true;
+      error.textContent = '';
+      const requested = Number(input.value);
+      if (!Number.isInteger(requested) || requested < 1 || requested > 100) {
+        error.textContent = 'Choose a whole number between 1 and 100.';
+        input.focus();
+        return;
+      }
+      setQty(requested); quoteBtn.disabled = true;
       const generation = screenGeneration;
       try {
         const q = await api('/quote', { itemId: it.id, quantity: qty });
@@ -141,7 +148,7 @@
     const email = el('input', { type: 'email', id: 'k-email', autocomplete: 'off', required: true, maxlength: '254', 'aria-describedby': 'k-privacy' });
     const name = el('input', { type: 'text', id: 'k-name', autocomplete: 'off', maxlength: '80' });
     const message = el('textarea', { id: 'k-msg', maxlength: '500', autocomplete: 'off', placeholder: 'Colour, size, when you need it...' });
-    const copy = config.mailCopy ? el('label', { class: 'k-check', for: 'k-copy' }, el('input', { type: 'checkbox', id: 'k-copy', checked: true }), el('span', { text: 'Email me a copy of this quote' })) : null;
+    const copy = config.mailCopy ? el('label', { class: 'k-check', for: 'k-copy' }, el('input', { type: 'checkbox', id: 'k-copy' }), el('span', { text: 'Email me a copy of this quote' })) : null;
     const trap = el('input', { type: 'text', class: 'k-hp', name: 'website', tabindex: '-1', autocomplete: 'off', 'aria-hidden': 'true' });
     const send = el('button', { type: 'submit', class: 'k-btn' }, 'Send to us');
     const until = new Date(q.validUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -182,7 +189,7 @@
       el('div', { class: 'k-box' },
         el('p', { text: 'Your reference number is:' }),
         el('div', { class: 'k-ref', text: r.reference }),
-        el('p', { text: 'Keep this number. We will email you.' }), r.copyRequested ? el('p', { text: 'We are also sending a copy of your quote to your email. It can take a few minutes.' }) : null),
+        el('p', { text: 'Keep this number. We will email you.' }), r.copyRequested ? el('p', { text: 'You asked for an email copy. Keep your reference number in case it does not arrive.' }) : null),
       el('div', { class: 'k-actions' }, el('button', { type: 'button', class: 'k-btn', onclick: () => reset() }, 'Start again')),
       el('p', { text: 'This screen will clear itself shortly.' }));
     resetTimer = setTimeout(() => reset(true), 45000);

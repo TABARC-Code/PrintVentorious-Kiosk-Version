@@ -86,12 +86,13 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
     await page.fill('#k-email', 'not-an-email'); await page.click('text=Send to us');
     await page.waitForSelector('.k-error:not(:empty)');
     assert.ok((await page.textContent('.k-error')).includes('valid email'));
-    assert.strictEqual(await page.isChecked('#k-copy'), true, 'the copy box is on by default');
+    assert.strictEqual(await page.isChecked('#k-copy'), false, 'email copies require consent');
+    await page.check('#k-copy');
     await page.fill('#k-email', 'sam@example.com'); await page.fill('#k-name', 'Sam'); await page.fill('#k-msg', 'Red please');
     await page.click('text=Send to us');
     await page.waitForSelector('.k-ref');
     const ref = await page.textContent('.k-ref');
-    assert.ok((await page.textContent('main')).includes('sending a copy'), 'the done screen says a copy is on its way');
+    assert.ok((await page.textContent('main')).includes('You asked for an email copy'), 'the done screen acknowledges the request without promising delivery');
     for (let i = 0; i < 50 && !mails.length; i++) await new Promise((r) => setTimeout(r, 20));
     assert.strictEqual(mails.length, 1); assert.strictEqual(mails[0].to, 'sam@example.com'); assert.ok(mails[0].text.includes(ref));
     assert.ok(/^Q-[A-Z2-9]{6}$/.test(ref), ref);
@@ -154,3 +155,4 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
     await browser.close(); server.close();
   }
 })().catch((e) => { console.error(`FAIL ${e.message}`); process.exit(1); });
+

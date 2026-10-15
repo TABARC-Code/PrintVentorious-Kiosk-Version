@@ -36,13 +36,13 @@ In the standalone repo the catalogue and settings are rows in the SQLite databas
 - **Catalogue.** Only models you add here are shown to customers. For each you enter the print time and filament weight per plate, how many fit on a plate, and a filament. The dialog shows you what a customer would be quoted and what it costs you. The model's licence is shown beside it, because you need to be allowed to sell prints of it. I can't tell you whether you are.
 - **Requests.** Each shows what they asked for, the quote, their email address and message, plus **your** cost and profit (customers never see those). A status you set (new, quoted, accepted, declined, done), a **Reply by email** link that opens your mail program with the quote filled in, and **Delete**.
 
-New requests can also be sent to a webhook as JSON. A Discord or Slack webhook address works as it is. There's no built-in email sending: that would need your mail password stored in the app, and I'd rather give you the inbox and the webhook than a half-secure mailer.
+New requests can also be sent to a webhook as JSON. A Discord or Slack webhook address works as it is. The standalone server can also send an email copy when SMTP is configured and the customer ticks the copy box. See the README for setup and delivery limits.
 
 ## Where the price comes from
 
 From the **Farm Cost Calculator**, using the average of your printers that are in service. The server works the price out; the customer's screen only shows it, so there's no price in the page to tamper with. The customer pays for whole plates: ask for 3 of something that prints 4 to a plate and the quote covers the plate, spread over the 3.
 
-It refuses to quote until the calculator has real numbers: at least one printer in service with a purchase price, and at least one filament with a spool price. Otherwise it would be quoting placeholder money to a member of the public. The Settings tab tells you what's missing.
+It refuses to quote until the calculator has real numbers: a purchase price for every printer in service, and at least one filament with a spool price. Otherwise it would be quoting placeholder money to a member of the public. The Settings tab tells you what's missing.
 
 ## Why it's built the way it is
 
@@ -61,7 +61,7 @@ It refuses to quote until the calculator has real numbers: at least one printer 
 
 ## Not included
 
-Payment, customer file uploads, customer accounts, email sending, and a page for customers to check on their order. Each turns a quote form into a more serious piece of software (card data, malware in uploaded files, passwords, mail credentials). They can be added one at a time if you decide you need them.
+Payment, customer file uploads, customer accounts, automatic email retries, and a page for customers to check on their order. Each turns a quote form into a more serious piece of software (card data, malware in uploaded files, passwords, mail credentials). They can be added one at a time if you decide you need them.
 
 ## Checked, and not
 
@@ -70,3 +70,4 @@ Tested: 21 unit tests of the quote logic and HTTP behaviour against a real in-me
 Not checked: the Electron desktop app (no Electron here), a real Discord or Slack webhook, a real phone or tablet, and a real library with real thumbnails.
 
 Author: TABARC-Code
+

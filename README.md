@@ -35,12 +35,23 @@ A **Reading options** button on the page: three font choices (Inter, Atkinson Hy
 | `integration/printventory/` | The admin dialog and a patch for running this inside Printventory instead. |
 | `docs/kiosk-quotes.md` | How it works and why. |
 
+## Email copies
+
+Optional: set `KIOSK_SMTP_URL` (`smtps://` on port 465 or `smtp://` with STARTTLS), `KIOSK_MAIL_FROM`, and optionally `KIOSK_MAIL_REPLY_TO`. Keep credentials in the environment. SMTP requires TLS and uses bounded connection and socket timeouts.
+
+Customers choose whether to receive a copy; the box starts unchecked. The staff inbox shows pending, accepted by the mail server, failed, or daily limit reached. Server acceptance does not confirm inbox delivery. The default limit is 200 attempts per process per UTC day; restarting resets it. Automatic retries and a durable delivery queue are not implemented.
+
+## Pricing checks
+
+Quantities must be whole numbers from 1 to 100. Every printer marked in service needs a purchase price so the farm average does not silently include zero-cost machines. Mark unpriced printers out of service until their costs are entered.
+
 ## Not done
 
-Payment, uploads, accounts, email sending. Each one makes a quote form into a proper security problem. 
+Payment, uploads, customer accounts, and automatic email retries.
 
 ## Licence
 
 MIT, see `LICENSE`. The bundled fonts keep their own SIL OFL 1.1 licences (`public/fonts/licences/`). The model licences of whatever you put in your catalogue are your problem, not mine.
 
 Author: TABARC-Code
+
