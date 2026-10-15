@@ -168,7 +168,8 @@
     });
   }
 
-  function field(label, input, help) { return [el('label', { for: input.id, text: label }), input, help ? el('p', { class: 'a-muted', text: help }) : null]; }
+  // (filter: this gets spread into plain append() calls, which print the word "null" for an empty slot. Found that one too late.)
+  function field(label, input, help) { return [el('label', { for: input.id, text: label }), input, help ? el('p', { class: 'a-muted', text: help }) : null].filter(Boolean); }
   const text = (id, v, extra) => el('input', { type: 'text', id, value: v == null ? '' : v, autocomplete: 'off', ...extra });
   const num = (id, v, extra) => el('input', { type: 'number', id, value: v == null ? '' : v, step: 'any', inputmode: 'decimal', ...extra });
 

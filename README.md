@@ -33,6 +33,24 @@ It's a separate server from the customer page, on purpose, because it can see em
 
 Settings: `KIOSK_ADMIN_PORT` (5081), `KIOSK_ADMIN_HOST` (127.0.0.1), `KIOSK_ADMIN_TOKEN`, `KIOSK_ADMIN_ALLOWED_HOSTS` (comma-separated extra host names).
 
+## Putting the customer page on the internet
+
+Only the customer page should ever be public. Keep the admin page on localhost and put a reverse proxy in front of the customer side that forwards just `/kiosk`, `/kiosk/*` and `/api/kiosk/*`. A Caddy sketch (**not tested by me**, check it against Caddy's own docs):
+
+```
+shop.example.com {
+    @public path /kiosk /kiosk/* /api/kiosk/*
+    handle @public { reverse_proxy 127.0.0.1:5080 }
+    handle { respond "Not found" 404 }
+}
+```
+
+Then start the server with `KIOSK_TRUST_PROXY=1`. Without it, every customer arrives from the proxy's address and the per-address limits (five requests in ten minutes) apply to the whole shop at once. With it set and no proxy actually in front, anyone can fake the header to dodge those limits, so only set it if a proxy really is there. TLS comes from the proxy; customers' email addresses should never cross the internet in plain text.
+
+## Backups
+
+`npm run backup` writes a safe copy to `data/backups/` using SQLite's own backup (safe while the server runs; copying the file by hand in WAL mode can miss recent data). It's owner-only because it holds email addresses, and backups are not covered by the retention clean-up, so look after them.
+
 ## Emailing customers a copy
 
 Off unless you set `KIOSK_SMTP_URL` (for example `smtps://user:password@smtp.example.com:465`) and `KIOSK_MAIL_FROM`. When it's on, the quote screen shows a ticked "Email me a copy of this quote" box. The copy is plain text, goes once to the address the customer typed, and contains only the reference, item, price and dates. Nothing they typed freely (name, message) is ever put in it, so the form can't be used to send someone else's words to a stranger. There's a daily cap (200). The mail password lives in the environment and nowhere else. Optional `KIOSK_MAIL_REPLY_TO`.

@@ -12,6 +12,7 @@
  * made up. Do not quote real customers from them. Replace them with your own (see README.md).
  *
  * Environment:  PORT (5080)  KIOSK_DB (./data/kiosk.db)  KIOSK_WEBHOOK (optional https address)
+ *              KIOSK_TRUST_PROXY (number of reverse proxies in front, e.g. 1; leave unset if none)
  *              KIOSK_SMTP_URL, KIOSK_MAIL_FROM, KIOSK_MAIL_REPLY_TO (optional: lets customers tick "email me a copy")
  *
  * There is deliberately no admin web page here. Settings and items are plain rows in the database
@@ -57,9 +58,13 @@ function seedDemo(db) {
   return true;
 }
 
-function createApp({ db, publicDir = path.join(__dirname, 'public'), onNewRequest, mailer = null, mailDailyCap = 200 } = {}) {
+function createApp({ db, publicDir = path.join(__dirname, 'public'), onNewRequest, mailer = null, mailDailyCap = 200, trustProxy = false } = {}) {
   const app = express();
   app.disable('x-powered-by');
+  // Behind a reverse proxy every customer arrives from the proxy's address, so the per-address limits (five requests
+  // in ten minutes) would throttle the whole shop at once. Say how many proxies you have and the real address is read
+  // from X-Forwarded-For. Only set it if a proxy really is in front: otherwise anyone can fake that header to dodge the limits.
+  if (trustProxy) app.set('trust proxy', trustProxy);
   K.registerRoutes(app, { getDb: () => db, getSetting: getSetting(db), publicDir, onNewRequest, mailer, mailAllowed: mailer ? K.createDailyCap(mailDailyCap) : undefined });
   app.get('/', (req, res) => res.redirect('/kiosk'));
   app.use((req, res) => res.status(404).type('text/plain').send('Not found'));
@@ -76,7 +81,7 @@ if (require.main === module) {
   const purge = () => { try { K.purgeOld(db, K.loadSettings(getSetting(db)).retentionDays); } catch (e) { console.error('purge failed:', e.message); } };
   purge(); setInterval(purge, 6 * 60 * 60 * 1000).unref();
   const port = Number(process.env.PORT) || 5080;
-  createApp({ db, mailer: mailerFromEnv() }).listen(port, () => console.log(`Quote page: http://localhost:${port}/kiosk`));
+  createApp({ db, mailer: mailerFromEnv(), trustProxy: /^\d+$/.test(process.env.KIOSK_TRUST_PROXY || '') ? Number(process.env.KIOSK_TRUST_PROXY) : false }).listen(port, () => console.log(`Quote page: http://localhost:${port}/kiosk`));
 
   const adminHost = process.env.KIOSK_ADMIN_HOST || '127.0.0.1';
   const loopback = ['127.0.0.1', '::1', 'localhost'].includes(adminHost);
