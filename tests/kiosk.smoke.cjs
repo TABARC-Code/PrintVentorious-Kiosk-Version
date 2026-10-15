@@ -61,6 +61,10 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
     assert.ok((await page.textContent('.k-card:has-text("Phone stand")')).includes('About 10 x 8 x 9 cm'), 'size shown on the card');
     assert.ok(!(await page.textContent('.k-card:has-text("Dragon")')).includes('About'), 'no size note, no size line');
 
+    // no stray words from empty slots, and the screen heading is not just the page title said twice
+    assert.ok(!/null|undefined/.test(await page.textContent('main')), 'a screen printed null or undefined');
+    assert.notStrictEqual(await page.textContent('#k-screen-title'), await page.textContent('#k-title'), 'the title is shown twice');
+
     // search
     await page.fill('#k-q', 'dragon'); await page.click('.k-search button[type="submit"]');
     await page.waitForFunction(() => document.querySelectorAll('.k-card').length === 1);
@@ -76,6 +80,7 @@ const FARM = { currency: '£', electricityRate: 0.25, labourRate: 15, failureRat
     assert.strictEqual(await page.inputValue('#k-qty'), '2');
     await page.click('text=See my price');
     await page.waitForSelector('.k-price');
+    assert.ok(!/null|undefined/.test(await page.textContent('main')), 'the quote screen printed null or undefined');
     const expected = K.computeQuote({ farmConfig: FARM, item: K.offeredItem(db, a), quantity: 2, settings: K.normaliseSettings({}) });
     assert.strictEqual(await page.textContent('.k-price'), `£${expected.total.toFixed(2)}`, 'the page shows the server price');
     assert.ok((await page.textContent('main')).includes('estimate'), 'it says it is an estimate');

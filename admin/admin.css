@@ -43,3 +43,6 @@ textarea { min-height: 90px; }
 .a-pad { padding: 24px; }
 a { color: var(--accent); font-weight: 700; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+input[type=file] { width: 100%; max-width: 100%; min-height: 52px; padding: 8px; border: 2px dashed var(--line); border-radius: 12px; background: var(--raised); }
+input[type=file]::file-selector-button { min-height: 40px; margin-right: 12px; padding: 4px 16px; border: 2px solid var(--line); border-radius: 10px; background: transparent; color: var(--text); font: inherit; font-weight: 700; cursor: pointer; }
+h2[tabindex="-1"]:focus { outline: none; }

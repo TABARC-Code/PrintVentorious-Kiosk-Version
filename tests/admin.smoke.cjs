@@ -108,6 +108,19 @@ const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAEklEQVR42mP8z8D
     assert.ok(!(await page.$('.a-tabs')), 'a reload signs you out');
     assert.ok(await page.evaluate(() => document.documentElement.classList.contains('t-dark')), 'but your colours are remembered');
 
+    // ---- phone width: nothing scrolls sideways on any tab, including the item form ----
+    await page.fill('#a-token', TOKEN); await page.click('button:has-text("Sign in")'); await page.waitForSelector('.a-tabs');
+    await page.setViewportSize({ width: 375, height: 760 });
+    for (const tab of ['requests', 'items', 'prices', 'settings']) {
+      await page.click(`#a-tab-${tab}`);
+      if (tab === 'items') { await page.click('button:has-text("Change")'); await page.waitForSelector('#a-name'); }
+      if (tab === 'prices') await page.waitForSelector('#a-f-currency');
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), `${tab} scrolls sideways on a phone`);
+      assert.ok(!/null|undefined/.test(await page.textContent('main')), `${tab} printed null or undefined`);
+    }
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await page.reload(); await page.waitForSelector('#a-token');
+
     assert.deepStrictEqual(external, [], `requests left the machine: ${external.join(', ')}`);
     assert.deepStrictEqual(errors, [], `page errors: ${errors.join('; ')}`);
 
