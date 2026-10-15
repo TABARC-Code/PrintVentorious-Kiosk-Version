@@ -26,6 +26,8 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const K = require('./src/kiosk-core');
 const { mailerFromEnv } = require('./src/mailer');
+const { createAdminApp } = require('./src/admin');
+const crypto = require('crypto');
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
@@ -75,6 +77,30 @@ if (require.main === module) {
   purge(); setInterval(purge, 6 * 60 * 60 * 1000).unref();
   const port = Number(process.env.PORT) || 5080;
   createApp({ db, mailer: mailerFromEnv() }).listen(port, () => console.log(`Quote page: http://localhost:${port}/kiosk`));
+
+  const adminHost = process.env.KIOSK_ADMIN_HOST || '127.0.0.1';
+  const loopback = ['127.0.0.1', '::1', 'localhost'].includes(adminHost);
+  const chosen = process.env.KIOSK_ADMIN_TOKEN;
+  if (!loopback && !chosen) { console.error('KIOSK_ADMIN_HOST is not loopback, so KIOSK_ADMIN_TOKEN (12+ characters) is required. Admin page not started.'); }
+  else if (chosen && chosen.length < 12) { console.error('KIOSK_ADMIN_TOKEN must be at least 12 characters. Admin page not started.'); }
+  else {
+    const token = chosen || crypto.randomBytes(18).toString('base64url');
+    const adminPort = Number(process.env.KIOSK_ADMIN_PORT) || 5081;
+    const allowedHosts = (process.env.KIOSK_ADMIN_ALLOWED_HOSTS || '').split(',').map((h) => h.trim()).filter(Boolean);
+    createAdmin({ db, token, allowedHosts }).listen(adminPort, adminHost, () => {
+      console.log(`Admin page: http://localhost:${adminPort}/  (${loopback ? 'this machine only' : `listening on ${adminHost}`})`);
+      if (!chosen) console.log(`Admin token for this run: ${token}`);
+    });
+  }
 }
 
-module.exports = { createApp, openDb, seedDemo, getSetting, setSetting };
+/**
+ * The owner's admin page: a second server on a second port. Loopback only unless you say otherwise, and saying
+ * otherwise (KIOSK_ADMIN_HOST) insists on a token you chose yourself. A random one is made for loopback use and
+ * printed once at start-up. It isn't written anywhere, so a restart means a new one (set KIOSK_ADMIN_TOKEN to keep one).
+ */
+function createAdmin({ db, token, allowedHosts } = {}) {
+  return createAdminApp({ getDb: () => db, getSetting: getSetting(db), setSetting: (k, v) => setSetting(db, k, v), token, allowedHosts, publicDir: path.join(__dirname, 'public'), adminDir: path.join(__dirname, 'admin') });
+}
+
+module.exports = { createApp, createAdmin, openDb, seedDemo, getSetting, setSetting };

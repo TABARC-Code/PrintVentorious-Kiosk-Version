@@ -28,6 +28,14 @@ Choices live in memory and as classes on the page. They aren't stored. The idle 
 
 There's also a plain **step line** (1. Pick something, 2. Check your price, 3. Sent), short sentences, buttons that say what they do (Choose this, See my price, Send to us, Go back), and a "What happens next?" box before anyone types an email address. Text is left aligned with short lines, never justified.
 
+## How big is it?
+
+Each item can carry one short line, for example "About 10 x 8 x 9 cm", up to 60 characters. It shows on the item's card and on its own screen under "How big:". It's text you write, not something measured from the model file, so it's as accurate as you are.
+
+## An emailed copy
+
+If you set up a mailer (see the README), the quote screen gets a ticked "Email me a copy of this quote" box. One plain-text message, to the address they typed, with the reference, item, price and dates and nothing else. Free text from the form is never included. A daily cap stops it being abused as a mail cannon, and a mailer that can't deliver never gets in the customer's way: the request is still saved, and the inbox shows "Sent", "Failed" or "Not sent: daily limit" against it.
+
 ## How you run it
 
 In the standalone repo the catalogue and settings are rows in the SQLite database and `npm run inbox` lists what's arrived. Inside Printventory (see `integration/printventory/`) it's the **Quote requests** dialog.

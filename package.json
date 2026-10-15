@@ -7,7 +7,7 @@
     "start": "node server.js",
     "inbox": "node scripts/inbox.js",
     "test": "node scripts/run-tests.js",
-    "test:browser": "node tests/kiosk.smoke.cjs && node tests/kiosk.axe.cjs"
+    "test:browser": "node tests/kiosk.smoke.cjs && node tests/kiosk.axe.cjs && node tests/admin.smoke.cjs && node tests/admin.axe.cjs"
   },
   "author": "TABARC-Code",
   "license": "MIT",
