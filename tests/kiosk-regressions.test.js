@@ -119,7 +119,7 @@ async function client() {
   const sending = form.listeners.submit({ preventDefault() {} }); const submission = pending.shift();
   context.hooks.reset(); respond(pending.shift(), { items: [], total: 0 }); await flush();
   respond(submission, { reference: 'Q-PREVIOUS' }); await sending;
-  assert.equal(ids['k-screen-title'].textContent, 'Get a print quote');
+  assert.equal(ids['k-screen-title'].textContent, 'What would you like?');
   assert(!find(ids['k-main'], n => n.textContent === 'Q-PREVIOUS'));
   context.hooks.itemScreen(item);
   ids['k-qty'].value = '1.5';
@@ -132,7 +132,7 @@ async function client() {
   const quoting = button.listeners.click(); const request = pending.shift();
   context.hooks.reset(); respond(pending.shift(), { items: [], total: 0 }); await flush();
   respond(request, quote); await quoting;
-  assert.equal(ids['k-screen-title'].textContent, 'Get a print quote');
+  assert.equal(ids['k-screen-title'].textContent, 'What would you like?');
   const searchForm = find(ids['k-main'], n => n.tag === 'form');
   ids['k-q'].value = 'old'; searchForm.listeners.submit({ preventDefault() {} }); const old = pending.shift();
   ids['k-q'].value = 'new'; searchForm.listeners.submit({ preventDefault() {} }); const newer = pending.shift();
