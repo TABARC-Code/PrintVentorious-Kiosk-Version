@@ -14,10 +14,9 @@
  * Environment:  PORT (5080)  KIOSK_DB (./data/kiosk.db)  KIOSK_WEBHOOK (optional https address)
  *              KIOSK_SMTP_URL, KIOSK_MAIL_FROM, KIOSK_MAIL_REPLY_TO (optional: email copies)
  *              KIOSK_ADMIN_EMAILS (optional: comma-separated admin notification recipients)
+ *              KIOSK_TRUST_PROXY (number of reverse proxies in front, e.g. 1; leave unset if none)
  *
- * There is deliberately no admin web page here. Settings and items are plain rows in the database
- * (settings, kiosk_items, models), and the inbox is `npm run inbox`. An admin interface is a separate piece
- * of work with its own security questions, and PrintVentorious already has one.
+ * The admin page runs on a separate port and listens on loopback by default.
  */
 'use strict';
 
@@ -27,6 +26,8 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const K = require('./src/kiosk-core');
 const { mailerFromEnv, parseAdminRecipients } = require('./src/mailer');
+const { createAdminApp } = require('./src/admin');
+const crypto = require('crypto');
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
@@ -56,10 +57,14 @@ function seedDemo(db) {
   return true;
 }
 
-function createApp({ db, publicDir = path.join(__dirname, 'public'), onNewRequest, mailer = null, mailDailyCap = 200, adminRecipients = [] } = {}) {
+function createApp({ db, publicDir = path.join(__dirname, 'public'), onNewRequest, mailer = null, mailDailyCap = 200, adminRecipients = [], trustProxy = false } = {}) {
   if (adminRecipients.length && !mailer) throw new Error('Admin email notifications require SMTP configuration.');
   const app = express();
   app.disable('x-powered-by');
+  // Behind a reverse proxy every customer arrives from the proxy's address, so the per-address limits (five requests
+  // in ten minutes) would throttle the whole shop at once. Say how many proxies you have and the real address is read
+  // from X-Forwarded-For. Only set it if a proxy really is in front: otherwise anyone can fake that header to dodge the limits.
+  if (trustProxy) app.set('trust proxy', trustProxy);
   K.registerRoutes(app, { getDb: () => db, getSetting: getSetting(db), publicDir, onNewRequest, mailer, adminRecipients, mailAllowed: mailer ? K.createDailyCap(mailDailyCap) : undefined });
   app.get('/', (req, res) => res.redirect('/kiosk'));
   app.use((req, res) => res.status(404).type('text/plain').send('Not found'));
@@ -76,8 +81,31 @@ if (require.main === module) {
   const purge = () => { try { K.purgeOld(db, K.loadSettings(getSetting(db)).retentionDays); } catch (e) { console.error('purge failed:', e.message); } };
   purge(); setInterval(purge, 6 * 60 * 60 * 1000).unref();
   const port = Number(process.env.PORT) || 5080;
-  createApp({ db, mailer: mailerFromEnv(), adminRecipients: parseAdminRecipients(process.env.KIOSK_ADMIN_EMAILS) }).listen(port, () => console.log(`Quote page: http://localhost:${port}/kiosk`));
+  createApp({ db, mailer: mailerFromEnv(), adminRecipients: parseAdminRecipients(process.env.KIOSK_ADMIN_EMAILS), trustProxy: /^\d+$/.test(process.env.KIOSK_TRUST_PROXY || '') ? Number(process.env.KIOSK_TRUST_PROXY) : false }).listen(port, () => console.log(`Quote page: http://localhost:${port}/kiosk`));
+
+  const adminHost = process.env.KIOSK_ADMIN_HOST || '127.0.0.1';
+  const loopback = ['127.0.0.1', '::1', 'localhost'].includes(adminHost);
+  const chosen = process.env.KIOSK_ADMIN_TOKEN;
+  if (!loopback && !chosen) { console.error('KIOSK_ADMIN_HOST is not loopback, so KIOSK_ADMIN_TOKEN (12+ characters) is required. Admin page not started.'); }
+  else if (chosen && chosen.length < 12) { console.error('KIOSK_ADMIN_TOKEN must be at least 12 characters. Admin page not started.'); }
+  else {
+    const token = chosen || crypto.randomBytes(18).toString('base64url');
+    const adminPort = Number(process.env.KIOSK_ADMIN_PORT) || 5081;
+    const allowedHosts = (process.env.KIOSK_ADMIN_ALLOWED_HOSTS || '').split(',').map((h) => h.trim()).filter(Boolean);
+    createAdmin({ db, token, allowedHosts }).listen(adminPort, adminHost, () => {
+      console.log(`Admin page: http://localhost:${adminPort}/  (${loopback ? 'this machine only' : `listening on ${adminHost}`})`);
+      if (!chosen) console.log(`Admin token for this run: ${token}`);
+    });
+  }
 }
 
-module.exports = { createApp, openDb, seedDemo, getSetting, setSetting };
+/**
+ * The owner's admin page: a second server on a second port. Loopback only unless you say otherwise, and saying
+ * otherwise (KIOSK_ADMIN_HOST) insists on a token you chose yourself. A random one is made for loopback use and
+ * printed once at start-up. It isn't written anywhere, so a restart means a new one (set KIOSK_ADMIN_TOKEN to keep one).
+ */
+function createAdmin({ db, token, allowedHosts } = {}) {
+  return createAdminApp({ getDb: () => db, getSetting: getSetting(db), setSetting: (k, v) => setSetting(db, k, v), token, allowedHosts, publicDir: path.join(__dirname, 'public'), adminDir: path.join(__dirname, 'admin') });
+}
 
+module.exports = { createApp, createAdmin, openDb, seedDemo, getSetting, setSetting };

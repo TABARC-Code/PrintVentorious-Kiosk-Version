@@ -52,7 +52,9 @@
     screenGeneration += 1;
     main.textContent = '';
     const h = el('h2', { id: 'k-screen-title', text: heading, tabindex: '-1' });
-    main.append(steps(step), h, ...content);
+    // Drop the empty slots. append(null) writes the word "null" onto the page, which is exactly what this did on the
+    // catalogue screen until I looked at a screenshot of it on a phone.
+    main.append(steps(step), h, ...content.flat().filter((c) => c !== null && c !== undefined && c !== false));
     h.focus({ preventScroll: false });
     window.scrollTo(0, 0);
   }
@@ -74,7 +76,7 @@
     const grid = el('div', { class: 'k-grid', id: 'k-grid' });
     const more = el('div', { class: 'k-more' });
     const status = el('p', { id: 'k-status', 'aria-live': 'polite' });
-    show(config.title, 1, config.intro ? el('p', { text: config.intro }) : null, config.ready ? null : el('p', { class: 'k-error', text: 'Pricing is not set up yet. You can look around, but please ask staff for a quote.' }), form, status, grid, more);
+    show('What would you like?', 1, config.intro ? el('p', { text: config.intro }) : null, config.ready ? null : el('p', { class: 'k-error', text: 'Pricing is not set up yet. You can look around, but please ask staff for a quote.' }), form, status, grid, more);
     const generation = screenGeneration;
     const session = state;
     let searchGeneration = 0;
