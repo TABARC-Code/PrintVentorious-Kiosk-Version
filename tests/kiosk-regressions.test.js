@@ -62,6 +62,37 @@ async function submissions() {
   db.close(); failedDb.close();
   console.log('ok retries: one row and notification, restart, expiry, identity, failed insert recovery');
 }
+
+async function adminNotifications() {
+  const db = database();
+  const recipients = ['owner@example.com', 'team@example.com'];
+  const r = routes(db, { adminRecipients: recipients });
+  const quote = (await r.call('/quote', { itemId: 1, quantity: 2 })).body;
+  const body = { quoteId: quote.quoteId, email: 'sam@example.com', name: 'Sam', message: 'Please use blue filament', copy: false };
+  const first = await r.call('/submit', body);
+  assert.equal(first.statusCode, 200);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepStrictEqual(r.sent.map((message) => message.to), recipients);
+  for (const message of r.sent) {
+    assert.equal(message.replyTo, 'sam@example.com');
+    assert(message.text.includes(first.body.reference));
+    assert(message.text.includes('Please use blue filament'));
+    assert(!message.text.includes('owner@example.com'));
+  }
+  const status = db.prepare('SELECT admin_mail_status, mail_status FROM quote_requests WHERE reference = ?').get(first.body.reference);
+  assert.equal(status.admin_mail_status, 'sent');
+  assert.equal(status.mail_status, 'none');
+  assert.equal((await r.call('/submit', body)).body.reference, first.body.reference);
+  assert.equal(r.sent.length, 2, 'retry must not notify admins again');
+
+  const failing = routes(db, { adminRecipients: recipients, mailer: { send: async ({ to }) => ({ ok: to !== 'team@example.com' }) } });
+  const secondQuote = (await failing.call('/quote', { itemId: 1, quantity: 1 })).body;
+  const second = await failing.call('/submit', { quoteId: secondQuote.quoteId, email: 'lee@example.com' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(db.prepare('SELECT admin_mail_status FROM quote_requests WHERE reference = ?').get(second.body.reference).admin_mail_status, 'failed');
+  db.close();
+  console.log('ok admin email: separate recipients, reply address, no duplicate on retry, partial failure recorded');
+}
 class Element {
   constructor(tag, ids) { this.tag = tag; this.ids = ids; this.nodeType = 1; this.children = []; this.listeners = {}; this.value = ''; this.classList = { toggle() {} }; }
   set textContent(v) { this.text = v; this.children = []; } get textContent() { return this.text || ''; }
@@ -132,6 +163,10 @@ async function adminSize() {
     const card = context.requestCard({ ...row, mail_status: status });
     assert(find(card, n => n.textContent.includes(fragment)), status);
   }
+  for (const [status, fragment] of [['pending', 'waiting to send'], ['sent', 'accepted by the mail server'], ['failed', 'one or more messages failed']]) {
+    const card = context.requestCard({ ...row, admin_mail_status: status });
+    assert(find(card, n => n.textContent.includes(fragment)), status);
+  }
   db.close(); console.log('ok admin: size labels round-trip; email delivery status is visible');
 }
 function pricing() {
@@ -145,4 +180,4 @@ function pricing() {
   assert.equal(K.pricingReady({ ...farm, printers: { ...farm.printers, 2: { price: 0, active: false } } }).ok, true);
   console.log('ok pricing: whole quantities only; unpriced active printers block quotes');
 }
-(async () => { pricing(); await submissions(); await client(); await adminSize(); })().catch(e => { console.error(e); process.exitCode = 1; });
+(async () => { pricing(); await submissions(); await adminNotifications(); await client(); await adminSize(); })().catch(e => { console.error(e); process.exitCode = 1; });

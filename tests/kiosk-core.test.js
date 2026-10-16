@@ -290,7 +290,7 @@ function call(port, { method = 'GET', path: p, body, headers = {} }) {
     old.prepare('CREATE TABLE quote_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, reference TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT \'new\', model_id INTEGER, item_name TEXT, quantity INTEGER NOT NULL, unit_price REAL, total_price REAL, currency TEXT, valid_until TEXT, customer_email TEXT NOT NULL, customer_name TEXT, message TEXT, internal_cost REAL, internal_profit REAL, price_shown INTEGER NOT NULL DEFAULT 1, notify_status TEXT NOT NULL DEFAULT \'none\', handled_at TEXT)').run();
     K.ensureSchema(old); K.ensureSchema(old);   // twice: running it again must be harmless
     const cols = (t) => old.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
-    assert.ok(cols('kiosk_items').includes('size_note') && cols('quote_requests').includes('mail_status'));
+    assert.ok(cols('kiosk_items').includes('size_note') && cols('quote_requests').includes('mail_status') && cols('quote_requests').includes('admin_mail_status'));
   });
 
   await test('email a copy: only when a mailer exists AND the customer asked; goes to their address; carries nothing they typed freely', async () => {
@@ -334,6 +334,29 @@ function call(port, { method = 'GET', path: p, body, headers = {} }) {
     for (let i = 0; i < 50 && db.prepare('SELECT mail_status FROM quote_requests WHERE reference = ?').get(r.json.reference).mail_status === 'none'; i++) await new Promise((x) => setTimeout(x, 20));
     assert.strictEqual(db.prepare('SELECT mail_status FROM quote_requests WHERE reference = ?').get(r.json.reference).mail_status, 'failed');
     a.server.close();
+  });
+
+  await test('admin team gets one email per recipient for a new request, with no duplicate on retry', async () => {
+    const sent = [];
+    const a = await startApp({ db, extra: {
+      mailer: { send: async (message) => { sent.push(message); return { ok: true }; } },
+      adminRecipients: ['ops@example.com', 'owner@example.com']
+    } });
+    try {
+      const q = (await call(a.port, { method: 'POST', path: '/api/kiosk/quote', body: { itemId: item, quantity: 1 } })).json;
+      const body = { quoteId: q.quoteId, email: 'sam@example.com', name: 'Sam', message: 'Blue, please' };
+      const first = await call(a.port, { method: 'POST', path: '/api/kiosk/submit', body });
+      assert.strictEqual(first.status, 200);
+      for (let i = 0; i < 50 && sent.length < 2; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.deepStrictEqual(sent.map((message) => message.to), ['ops@example.com', 'owner@example.com']);
+      assert.ok(sent.every((message) => message.replyTo === body.email && message.text.includes('Blue, please')));
+      const retry = await call(a.port, { method: 'POST', path: '/api/kiosk/submit', body });
+      assert.strictEqual(retry.status, 200);
+      assert.strictEqual(retry.json.reference, first.json.reference);
+      assert.strictEqual(sent.length, 2);
+      for (let i = 0; i < 50 && db.prepare('SELECT admin_mail_status FROM quote_requests WHERE reference = ?').get(first.json.reference).admin_mail_status === 'pending'; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.strictEqual(db.prepare('SELECT admin_mail_status FROM quote_requests WHERE reference = ?').get(first.json.reference).admin_mail_status, 'sent');
+    } finally { a.server.close(); }
   });
 
   await test('mailer: needs a sender and a transport; strips line breaks; builds a plain-text message (nothing leaves the machine)', async () => {

@@ -16,6 +16,15 @@
 // then reads "a@b.co Bcc: c@d.co" as a group and mails both.)
 const ONE_ADDRESS = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:"]{2,}$/;
 
+function parseAdminRecipients(value) {
+  if (!value) return [];
+  const addresses = String(value).split(',').map((entry) => entry.trim());
+  if (addresses.some((address) => !ONE_ADDRESS.test(address))) throw new Error('KIOSK_ADMIN_EMAILS must contain plain email addresses separated by commas.');
+  const unique = [...new Set(addresses.map((address) => address.toLowerCase()))];
+  if (unique.length > 10) throw new Error('KIOSK_ADMIN_EMAILS supports at most 10 addresses.');
+  return unique;
+}
+
 function createMailer({ url, from, replyTo, transport } = {}) {
   if (!from || (!url && !transport)) return null;
   let connection;
@@ -29,12 +38,13 @@ function createMailer({ url, from, replyTo, transport } = {}) {
   const nodemailer = require('nodemailer');
   const t = nodemailer.createTransport(transport || connection.toString());
   return {
-    async send({ to, subject, text }) {
+    async send({ to, subject, text, replyTo: messageReplyTo }) {
       if (!ONE_ADDRESS.test(String(to))) return { ok: false, error: 'Not a single plain email address.' };
+      if (messageReplyTo !== undefined && !ONE_ADDRESS.test(String(messageReplyTo))) return { ok: false, error: 'Not a single plain reply address.' };
       try {
         // nodemailer rejects header injection itself, but strip line breaks anyway. Cheap and boring.
         const clean = (v) => String(v).replace(/[\r\n]+/g, ' ');
-        const info = await t.sendMail({ from, to: String(to), subject: clean(subject), text, ...(replyTo ? { replyTo } : {}) });
+        const info = await t.sendMail({ from, to: String(to), subject: clean(subject), text, ...((messageReplyTo || replyTo) ? { replyTo: messageReplyTo || replyTo } : {}) });
         return { ok: true, info };
       } catch (e) { return { ok: false, error: e.message }; }
     }
@@ -45,5 +55,5 @@ function mailerFromEnv(env = process.env) {
   return createMailer({ url: env.KIOSK_SMTP_URL, from: env.KIOSK_MAIL_FROM, replyTo: env.KIOSK_MAIL_REPLY_TO });
 }
 
-module.exports = { createMailer, mailerFromEnv };
+module.exports = { createMailer, mailerFromEnv, parseAdminRecipients };
 

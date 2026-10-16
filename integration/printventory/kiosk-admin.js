@@ -101,6 +101,7 @@
       el('p', {}, el('strong', { text: 'From: ' }), `${r.customer_email}${r.customer_name ? ` (${r.customer_name})` : ''}`),
       r.message ? el('p', { class: 'ka-msg', text: r.message }) : null,
       r.mail_status && r.mail_status !== 'none' ? el('p', { class: ['failed', 'capped'].includes(r.mail_status) ? 'ka-bad' : 'ka-muted', text: ({ pending: 'Email copy: waiting to send.', sent: 'Email copy: accepted by the mail server; inbox delivery is not confirmed.', failed: 'Email copy: failed to send. Reply to the customer manually.', capped: 'Email copy: not sent because the daily limit was reached. Reply to the customer manually.' })[r.mail_status] || 'Email copy: status unavailable.' }) : null,
+      r.admin_mail_status && r.admin_mail_status !== 'none' ? el('p', { class: r.admin_mail_status === 'failed' ? 'ka-bad' : 'ka-muted', text: ({ pending: 'Admin team email: waiting to send.', sent: 'Admin team email: accepted by the mail server.', failed: 'Admin team email: one or more messages failed. Check this inbox.' })[r.admin_mail_status] || 'Admin team email: status unavailable.' }) : null,
       r.notify_status === 'failed' ? el('p', { class: 'ka-bad', text: 'The webhook message for this request failed to send.' }) : null,
       el('div', { class: 'ka-row' }, status, mail, el('button', { type: 'button', class: 'ka-btn ka-small ka-danger', onclick: async (e) => {
         if (!window.confirm(`Delete request ${r.reference} and the customer's email address? This cannot be undone.`)) return;

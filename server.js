@@ -12,7 +12,8 @@
  * made up. Do not quote real customers from them. Replace them with your own (see README.md).
  *
  * Environment:  PORT (5080)  KIOSK_DB (./data/kiosk.db)  KIOSK_WEBHOOK (optional https address)
- *              KIOSK_SMTP_URL, KIOSK_MAIL_FROM, KIOSK_MAIL_REPLY_TO (optional: lets customers tick "email me a copy")
+ *              KIOSK_SMTP_URL, KIOSK_MAIL_FROM, KIOSK_MAIL_REPLY_TO (optional: email copies)
+ *              KIOSK_ADMIN_EMAILS (optional: comma-separated admin notification recipients)
  *
  * There is deliberately no admin web page here. Settings and items are plain rows in the database
  * (settings, kiosk_items, models), and the inbox is `npm run inbox`. An admin interface is a separate piece
@@ -25,7 +26,7 @@ const path = require('path');
 const express = require('express');
 const Database = require('better-sqlite3');
 const K = require('./src/kiosk-core');
-const { mailerFromEnv } = require('./src/mailer');
+const { mailerFromEnv, parseAdminRecipients } = require('./src/mailer');
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
@@ -55,10 +56,11 @@ function seedDemo(db) {
   return true;
 }
 
-function createApp({ db, publicDir = path.join(__dirname, 'public'), onNewRequest, mailer = null, mailDailyCap = 200 } = {}) {
+function createApp({ db, publicDir = path.join(__dirname, 'public'), onNewRequest, mailer = null, mailDailyCap = 200, adminRecipients = [] } = {}) {
+  if (adminRecipients.length && !mailer) throw new Error('Admin email notifications require SMTP configuration.');
   const app = express();
   app.disable('x-powered-by');
-  K.registerRoutes(app, { getDb: () => db, getSetting: getSetting(db), publicDir, onNewRequest, mailer, mailAllowed: mailer ? K.createDailyCap(mailDailyCap) : undefined });
+  K.registerRoutes(app, { getDb: () => db, getSetting: getSetting(db), publicDir, onNewRequest, mailer, adminRecipients, mailAllowed: mailer ? K.createDailyCap(mailDailyCap) : undefined });
   app.get('/', (req, res) => res.redirect('/kiosk'));
   app.use((req, res) => res.status(404).type('text/plain').send('Not found'));
   return app;
@@ -74,7 +76,8 @@ if (require.main === module) {
   const purge = () => { try { K.purgeOld(db, K.loadSettings(getSetting(db)).retentionDays); } catch (e) { console.error('purge failed:', e.message); } };
   purge(); setInterval(purge, 6 * 60 * 60 * 1000).unref();
   const port = Number(process.env.PORT) || 5080;
-  createApp({ db, mailer: mailerFromEnv() }).listen(port, () => console.log(`Quote page: http://localhost:${port}/kiosk`));
+  createApp({ db, mailer: mailerFromEnv(), adminRecipients: parseAdminRecipients(process.env.KIOSK_ADMIN_EMAILS) }).listen(port, () => console.log(`Quote page: http://localhost:${port}/kiosk`));
 }
 
 module.exports = { createApp, openDb, seedDemo, getSetting, setSetting };
+

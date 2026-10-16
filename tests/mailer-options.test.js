@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('assert');
 const Module = require('module');
-const { createMailer } = require('../src/mailer');
+const { createMailer, parseAdminRecipients } = require('../src/mailer');
 const original = Module._load;
 let options, message;
 Module._load = function(name, ...args) {
@@ -11,6 +11,11 @@ Module._load = function(name, ...args) {
 (async () => {
   try {
     assert.equal(createMailer(), null);
+    assert.deepStrictEqual(parseAdminRecipients(''), []);
+    assert.deepStrictEqual(parseAdminRecipients(' OWNER@example.com ,team@example.com,owner@example.com '), ['owner@example.com', 'team@example.com']);
+    assert.throws(() => parseAdminRecipients('owner@example.com,invalid'), /plain email/);
+    assert.throws(() => parseAdminRecipients('owner@example.com\nBcc:other@example.com'), /plain email/);
+    assert.throws(() => parseAdminRecipients(Array.from({ length: 11 }, (_, i) => `team${i}@example.com`).join(',')), /at most 10/);
     assert.throws(() => createMailer({ url: 'https://smtp.example.com', from: 'quotes@example.com' }), /smtp/);
     const mailer = createMailer({ url: 'smtp://user:pass@smtp.example.com:587?requireTLS=false&socketTimeout=0', from: 'quotes@example.com' });
     const configured = new URL(options);
@@ -22,6 +27,9 @@ Module._load = function(name, ...args) {
     assert.equal(message, undefined);
     assert.equal((await mailer.send({ to: 'a@example.com', subject: 'Quote\r\nBcc: other@example.com', text: 'Hello' })).ok, true);
     assert(!message.subject.includes('\n'));
+    assert.equal((await mailer.send({ to: 'owner@example.com', replyTo: 'sam@example.com', subject: 'New request', text: 'Details' })).ok, true);
+    assert.equal(message.replyTo, 'sam@example.com');
+    assert.equal((await mailer.send({ to: 'owner@example.com', replyTo: 'sam@example.com\nBcc:evil@example.com', subject: 'New request', text: 'Details' })).ok, false);
     createMailer({ url: 'smtps://smtp.example.com:465', from: 'quotes@example.com' });
     assert.equal(new URL(options).protocol, 'smtps:');
     const transport = { jsonTransport: true };

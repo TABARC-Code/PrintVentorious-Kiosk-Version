@@ -3,7 +3,7 @@
  *
  * The customer-facing "get a quote" service. A customer picks something from the
  * catalogue, gets a price, leaves an email address, and the request lands in the
- * Quote requests inbox in the app (and optionally a webhook). That's all it does.
+ * Quote requests inbox in the app (and optionally a webhook or admin email). That's all it does.
  *
  * The rules this was built to, in order of importance:
  *
@@ -27,9 +27,8 @@
  * Not here, on purpose: payment, customer uploads, accounts. Each of those turns a
  * quote form into a different (and much more serious) piece of software.
  *
- * Wishlist: an email sent straight from here. It needs SMTP credentials stored
- * somewhere safe, and I'd rather ship the webhook and the inbox than a half-secure
- * mailer. The inbox does give you a one-click "reply by email" link in the meantime.
+ * Optional SMTP settings can send a customer copy and notify the admin team.
+ * The inbox also gives staff a one-click "reply by email" link.
  */
 'use strict';
 
@@ -142,12 +141,14 @@ function ensureSchema(db) {
     price_shown INTEGER NOT NULL DEFAULT 1,
     notify_status TEXT NOT NULL DEFAULT 'none',
     handled_at TEXT,
-    mail_status TEXT NOT NULL DEFAULT 'none'
+    mail_status TEXT NOT NULL DEFAULT 'none',
+    admin_mail_status TEXT NOT NULL DEFAULT 'none'
   )`).run();
   // Databases made before these columns existed. CREATE TABLE IF NOT EXISTS won't add them.
   const addColumn = (table, col, ddl) => { if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col)) db.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`).run(); };
   addColumn('kiosk_items', 'size_note', 'TEXT');
   addColumn('quote_requests', 'mail_status', "TEXT NOT NULL DEFAULT 'none'");
+  addColumn('quote_requests', 'admin_mail_status', "TEXT NOT NULL DEFAULT 'none'");
   addColumn('quote_requests', 'quote_token_hash', 'TEXT');
   addColumn('quote_requests', 'retry_until', 'TEXT');
   addColumn('quote_requests', 'copy_requested', 'INTEGER NOT NULL DEFAULT 0');
@@ -413,6 +414,31 @@ async function sendCopy(ctx, request, settings) {
   } catch (_) { set('failed'); }
 }
 
+function adminNoticeText(request) {
+  return [
+    `New quote request ${request.reference}`,
+    '',
+    `Item: ${request.quantity} x ${request.item_name}`,
+    `Estimated price: ${request.currency}${Number(request.total_price).toFixed(2)}`,
+    `Valid until: ${String(request.valid_until).slice(0, 10)}`,
+    `Customer email: ${request.customer_email}`,
+    ...(request.customer_name ? [`Customer name: ${request.customer_name}`] : []),
+    ...(request.message ? ['', 'Customer message:', request.message] : []),
+    '',
+    'Open Quote Requests in the admin app to handle this request.'
+  ].join('\n');
+}
+
+async function sendAdminNotice(ctx, request) {
+  const set = (status) => { try { ctx.getDb().prepare('UPDATE quote_requests SET admin_mail_status = ? WHERE id = ?').run(status, request.id); } catch (_) { /* db closing */ } };
+  try {
+    const results = await Promise.all(ctx.adminRecipients.map((to) =>
+      Promise.resolve().then(() => ctx.mailer.send({ to, subject: `New quote request ${request.reference}`, text: adminNoticeText(request), replyTo: request.customer_email }))
+        .catch(() => ({ ok: false }))));
+    set(results.every((result) => result && result.ok) ? 'sent' : 'failed');
+  } catch (_) { set('failed'); }
+}
+
 // ---------- notifying you ----------
 function webhookPayload(request, settings) {
   const price = request.price_shown
@@ -552,6 +578,7 @@ function registerRoutes(app, ctx) {
     const tokenHash = crypto.createHash('sha256').update(body.quoteId).digest('hex');
     const now = ctx.now ? new Date(ctx.now()) : new Date();
     const s = settings();
+    const notifyAdmins = !!(ctx.mailer && ctx.adminRecipients && ctx.adminRecipients.length);
     let request, created = false;
     try {
       const db = ctx.getDb();
@@ -565,6 +592,10 @@ function registerRoutes(app, ctx) {
           db.prepare("UPDATE quote_requests SET mail_status = 'pending' WHERE id = ?").run(row.id);
           row.mail_status = 'pending';
         }
+        if (notifyAdmins) {
+          db.prepare("UPDATE quote_requests SET admin_mail_status = 'pending' WHERE id = ?").run(row.id);
+          row.admin_mail_status = 'pending';
+        }
         created = true;
         return row;
       })();
@@ -575,6 +606,7 @@ function registerRoutes(app, ctx) {
     res.json({ reference: request.reference, validUntil: request.valid_until, copyRequested: !!request.copy_requested });
     if (!created) return; // a retry must not notify staff or email the customer again
     if (request.copy_requested) sendCopy(ctx, request, s);
+    if (notifyAdmins) sendAdminNotice(ctx, request);
     // Tell you afterwards, so a slow webhook never keeps the customer waiting.
     try { if (ctx.onNewRequest) ctx.onNewRequest(request); } catch (_) { /* a failing hook must not matter */ }
     if (s.webhookUrl) {
@@ -629,6 +661,6 @@ module.exports = {
   saveItem, removeItem, listItemsAdmin, searchModels, publicCatalogue, offeredItem, thumbnailFor,
   computeQuote, createQuoteStore, createRateLimiter, validateSubmission, newReference,
   createRequest, listRequests, countNew, updateRequest, deleteRequest, purgeOld,
-  webhookPayload, sendWebhook, copyText, createDailyCap, registerRoutes, registerAdminIpc
+  webhookPayload, sendWebhook, copyText, adminNoticeText, createDailyCap, registerRoutes, registerAdminIpc
 };
 
